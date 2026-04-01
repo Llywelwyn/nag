@@ -1252,5 +1252,39 @@ every() {
   printf "[%s] %s (%s) — %s\\n" "${_id}" "${_human_time}" "${_rules_str//,/, }" "${_message}"
 }
 
+# mute ########################################################################
+
+describe "mute" <<HEREDOC
+Usage:
+  ${_ME} mute
+
+Description:
+  Mute alarm sounds. Notifications still fire, but no sound is played.
+HEREDOC
+mute() {
+  _ensure_nag_dir
+  : > "${_MUTED_FILE}"
+  printf "Sound muted.\\n"
+}
+
+# unmute ######################################################################
+
+describe "unmute" <<HEREDOC
+Usage:
+  ${_ME} unmute
+
+Description:
+  Unmute alarm sounds.
+HEREDOC
+unmute() {
+  if [[ -f "${_MUTED_FILE}" ]]
+  then
+    rm -f "${_MUTED_FILE}"
+    printf "Sound unmuted.\\n"
+  else
+    printf "Sound is not muted.\\n"
+  fi
+}
+
 # _main must be called after everything has been defined.
 _main
