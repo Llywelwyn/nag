@@ -556,8 +556,8 @@ _format_time() {
 #
 # Description:
 #   Parse a human-readable time string via `date -d` and print a unix
-#   timestamp. If the resulting time is in the past, roll forward to
-#   the same time-of-day tomorrow.
+#   timestamp. If the time is earlier today, roll forward to tomorrow.
+#   If the date is explicitly in the past (a previous day), error.
 _parse_time() {
   local _time_str="${1:-}"
   [[ -n "${_time_str}" ]] || _exit_1 printf "No time specified.\\n"
@@ -571,6 +571,16 @@ _parse_time() {
 
   if [[ "${_timestamp}" -le "${_now}" ]]
   then
+    local _parsed_date _today
+    _parsed_date="$(date -d "@${_timestamp}" +%Y-%m-%d)"
+    _today="$(date +%Y-%m-%d)"
+
+    if [[ "${_parsed_date}" != "${_today}" ]]
+    then
+      _exit_1 printf "Time is in the past: %s.\\n" "${_time_str}"
+    fi
+
+    # Today but already passed: roll to tomorrow same time.
     local _time_of_day
     _time_of_day="$(date -d "@${_timestamp}" +%H:%M:%S)"
     _timestamp="$(date -d "tomorrow ${_time_of_day}" +%s)" ||

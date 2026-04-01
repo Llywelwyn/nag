@@ -71,6 +71,11 @@ load test_helper
   [ "${status}" -eq 1 ]
 }
 
+@test "at with explicit past date fails" {
+  run_nag at "yesterday 3pm" "too late"
+  [ "${status}" -eq 1 ]
+}
+
 @test "at without message fails" {
   run_nag at "tomorrow 3pm"
   [ "${status}" -eq 1 ]
