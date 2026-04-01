@@ -44,6 +44,12 @@ NAG_CMD="${NAG_CMD:-notify-send}"
 # The default subcommand if no args are passed.
 NAG_DEFAULT="${NAG_DEFAULT:-list}"
 
+_VALID_RULES=(
+  hour day weekday weekend
+  monday tuesday wednesday thursday friday saturday sunday
+  month year
+)
+
 # The fallback subcommand if an arg is passed that is not defined.
 _FALLBACK_COMMAND_IF_NO_MATCH="at"
 
@@ -552,6 +558,254 @@ _format_time() {
 }
 
 # Usage:
+#   _validate_rules <rules_string>
+#
+# Description:
+#   Validate a comma-separated list of repeat rules. Exits with error
+#   if any rule is invalid.
+_validate_rules() {
+  local _rules_str="${1:-}"
+  [[ -n "${_rules_str}" ]] || _exit_1 printf "No rules specified.\\n"
+
+  local IFS=","
+  local _rule
+  for _rule in ${_rules_str}
+  do
+    if ! _contains "${_rule}" "${_VALID_RULES[@]}"
+    then
+      _exit_1 printf "Invalid rule: %s\\n" "${_rule}"
+    fi
+  done
+}
+
+# Usage:
+#   _next_occurrence <rules> <timestamp>
+#
+# Description:
+#   Compute the next occurrence for a repeating alarm. For comma-separated
+#   rules, returns the earliest next occurrence across all rules.
+_next_occurrence() {
+  local _rules_str="${1}"
+  local _timestamp="${2}"
+  local _earliest=""
+
+  local IFS=","
+  local _rule
+  for _rule in ${_rules_str}
+  do
+    IFS=$'\n\t'
+    local _next
+    _next="$(_next_for_rule "${_rule}" "${_timestamp}")"
+    if [[ -z "${_earliest}" ]] || (( _next < _earliest ))
+    then
+      _earliest="${_next}"
+    fi
+  done
+  IFS=$'\n\t'
+
+  printf "%s" "${_earliest}"
+}
+
+# Usage:
+#   _next_for_rule <rule> <timestamp>
+#
+# Description:
+#   Compute the next occurrence for a single repeat rule.
+_next_for_rule() {
+  local _rule="${1}"
+  local _timestamp="${2}"
+  local _time_of_day
+  _time_of_day="$(date -d "@${_timestamp}" +%H:%M:%S)"
+
+  case "${_rule}" in
+    hour)
+      printf "%s" "$((_timestamp + 3600))"
+      ;;
+    day)
+      date -d "$(date -d "@${_timestamp}" +%Y-%m-%d) + 1 day ${_time_of_day}" +%s
+      ;;
+    weekday)
+      _next_matching_day "${_timestamp}" "${_time_of_day}" "1 2 3 4 5"
+      ;;
+    weekend)
+      _next_matching_day "${_timestamp}" "${_time_of_day}" "6 7"
+      ;;
+    monday)    _next_matching_day "${_timestamp}" "${_time_of_day}" "1" ;;
+    tuesday)   _next_matching_day "${_timestamp}" "${_time_of_day}" "2" ;;
+    wednesday) _next_matching_day "${_timestamp}" "${_time_of_day}" "3" ;;
+    thursday)  _next_matching_day "${_timestamp}" "${_time_of_day}" "4" ;;
+    friday)    _next_matching_day "${_timestamp}" "${_time_of_day}" "5" ;;
+    saturday)  _next_matching_day "${_timestamp}" "${_time_of_day}" "6" ;;
+    sunday)    _next_matching_day "${_timestamp}" "${_time_of_day}" "7" ;;
+    month)
+      _next_month "${_timestamp}" "${_time_of_day}"
+      ;;
+    year)
+      _next_year "${_timestamp}" "${_time_of_day}"
+      ;;
+  esac
+}
+
+# Usage:
+#   _next_matching_day <timestamp> <time_of_day> <target_days>
+#
+# Description:
+#   Walk forward from tomorrow until a day-of-week matches one of the
+#   target days. Days are space-separated, 1=Mon 7=Sun (date +%u format).
+_next_matching_day() {
+  local _timestamp="${1}"
+  local _time_of_day="${2}"
+  local _targets="${3}"
+  local _base_date
+  _base_date="$(date -d "@${_timestamp}" +%Y-%m-%d)"
+
+  local _i
+  for _i in 1 2 3 4 5 6 7
+  do
+    local _candidate_ts _candidate_dow
+    _candidate_ts="$(date -d "${_base_date} + ${_i} day ${_time_of_day}" +%s)"
+    _candidate_dow="$(date -d "${_base_date} + ${_i} day" +%u)"
+
+    if [[ " ${_targets} " == *" ${_candidate_dow} "* ]]
+    then
+      printf "%s" "${_candidate_ts}"
+      return 0
+    fi
+  done
+}
+
+# Usage:
+#   _next_month <timestamp> <time_of_day>
+#
+# Description:
+#   Same day-of-month next month, same time. Clamps to last day of
+#   month if the day doesn't exist (e.g. 31st in a 30-day month).
+_next_month() {
+  local _timestamp="${1}"
+  local _time_of_day="${2}"
+  local _day _month _year
+  _day="$(date -d "@${_timestamp}" +%-d)"
+  _month="$(date -d "@${_timestamp}" +%-m)"
+  _year="$(date -d "@${_timestamp}" +%Y)"
+
+  _month=$((_month + 1))
+  if (( _month > 12 ))
+  then
+    _month=1
+    _year=$((_year + 1))
+  fi
+
+  local _last_day
+  _last_day="$(date -d "${_year}-$(printf "%02d" "${_month}")-01 + 1 month - 1 day" +%-d)"
+
+  if (( _day > _last_day ))
+  then
+    _day="${_last_day}"
+  fi
+
+  date -d "$(printf "%04d-%02d-%02d %s" "${_year}" "${_month}" "${_day}" "${_time_of_day}")" +%s
+}
+
+# Usage:
+#   _next_year <timestamp> <time_of_day>
+#
+# Description:
+#   Same month and day next year, same time. Feb 29 in a non-leap year
+#   clamps to Feb 28.
+_next_year() {
+  local _timestamp="${1}"
+  local _time_of_day="${2}"
+  local _day _month _year
+  _day="$(date -d "@${_timestamp}" +%-d)"
+  _month="$(date -d "@${_timestamp}" +%-m)"
+  _year="$(date -d "@${_timestamp}" +%Y)"
+
+  _year=$((_year + 1))
+
+  if ! date -d "$(printf "%04d-%02d-%02d" "${_year}" "${_month}" "${_day}")" &>/dev/null
+  then
+    local _last_day
+    _last_day="$(date -d "${_year}-$(printf "%02d" "${_month}")-01 + 1 month - 1 day" +%-d)"
+    _day="${_last_day}"
+  fi
+
+  date -d "$(printf "%04d-%02d-%02d %s" "${_year}" "${_month}" "${_day}" "${_time_of_day}")" +%s
+}
+
+# Usage:
+#   _first_occurrence <rules> <timestamp>
+#
+# Description:
+#   Compute the first valid occurrence for a repeating alarm. If the
+#   given timestamp already falls on a matching day, use it. Otherwise
+#   find the next matching day at the same time-of-day.
+_first_occurrence() {
+  local _rules_str="${1}"
+  local _timestamp="${2}"
+
+  if _timestamp_matches_rule "${_rules_str}" "${_timestamp}"
+  then
+    printf "%s" "${_timestamp}"
+  else
+    # Use a timestamp from yesterday so _next_occurrence walks from today.
+    local _yesterday=$((_timestamp - 86400))
+    local _time_of_day
+    _time_of_day="$(date -d "@${_timestamp}" +%H:%M:%S)"
+
+    local _earliest=""
+    local IFS=","
+    local _rule
+    for _rule in ${_rules_str}
+    do
+      IFS=$'\n\t'
+      local _next
+      _next="$(_next_for_rule "${_rule}" "${_yesterday}")"
+      # Ensure we don't go before the original timestamp's time today.
+      if [[ -z "${_earliest}" ]] || (( _next < _earliest ))
+      then
+        _earliest="${_next}"
+      fi
+    done
+    IFS=$'\n\t'
+
+    printf "%s" "${_earliest}"
+  fi
+}
+
+# Usage:
+#   _timestamp_matches_rule <rules> <timestamp>
+#
+# Description:
+#   Check if a timestamp falls on a day that matches any of the given rules.
+_timestamp_matches_rule() {
+  local _rules_str="${1}"
+  local _timestamp="${2}"
+  local _dow
+  _dow="$(date -d "@${_timestamp}" +%u)"  # 1=Mon 7=Sun
+
+  local IFS=","
+  local _rule
+  for _rule in ${_rules_str}
+  do
+    case "${_rule}" in
+      hour|day)    IFS=$'\n\t'; return 0 ;;
+      weekday)     [[ " 1 2 3 4 5 " == *" ${_dow} "* ]] && { IFS=$'\n\t'; return 0; } ;;
+      weekend)     [[ " 6 7 " == *" ${_dow} "* ]] && { IFS=$'\n\t'; return 0; } ;;
+      monday)      [[ "${_dow}" == "1" ]] && { IFS=$'\n\t'; return 0; } ;;
+      tuesday)     [[ "${_dow}" == "2" ]] && { IFS=$'\n\t'; return 0; } ;;
+      wednesday)   [[ "${_dow}" == "3" ]] && { IFS=$'\n\t'; return 0; } ;;
+      thursday)    [[ "${_dow}" == "4" ]] && { IFS=$'\n\t'; return 0; } ;;
+      friday)      [[ "${_dow}" == "5" ]] && { IFS=$'\n\t'; return 0; } ;;
+      saturday)    [[ "${_dow}" == "6" ]] && { IFS=$'\n\t'; return 0; } ;;
+      sunday)      [[ "${_dow}" == "7" ]] && { IFS=$'\n\t'; return 0; } ;;
+      month|year)  IFS=$'\n\t'; return 0 ;;
+    esac
+  done
+  IFS=$'\n\t'
+  return 1
+}
+
+# Usage:
 #   _parse_time <time-string>
 #
 # Description:
@@ -740,12 +994,12 @@ list() {
 
     if [[ -n "${_rule}" ]]
     then
-      _rule_display="every ${_rule//,/, }, "
+      _rule_display=" (${_rule//,/, })"
     else
       _rule_display=""
     fi
 
-    printf "[%s] %s%s — %s\\n" "${_id}" "${_rule_display}" "${_human_time}" "${_message}"
+    printf "[%s] %s%s — %s\\n" "${_id}" "${_human_time}" "${_rule_display}" "${_message}"
   done
 }
 
@@ -819,9 +1073,11 @@ HEREDOC
 at() {
   local _time_str="${1:-}"
   shift || true
-  local _message="${*:-}"
+  local _message
+  IFS=' ' _message="${*:-}"
+  IFS=$'\n\t'
 
-  [[ -n "${_time_str}" ]] || _exit_1 printf "Usage: ${_ME} [at] <time> <message>\\n"
+  [[ -n "${_time_str}" ]] || _exit_1 printf "Usage: %s [at] <time> <message>\\n" "${_ME}"
   [[ -n "${_message}" ]]  || _exit_1 printf "No message specified.\\n"
 
   local _timestamp
@@ -842,6 +1098,58 @@ at() {
   local _human_time
   _human_time="$(_format_time "${_timestamp}")"
   printf "[%s] %s — %s\\n" "${_id}" "${_human_time}" "${_message}"
+}
+
+# every ########################################################################
+
+describe "every" <<HEREDOC
+Usage:
+  ${_ME} every <rules> <time> <message...>
+
+Description:
+  Create a repeating alarm. Rules are a comma-separated list of repeat
+  schedules: hour, day, weekday, weekend, monday-sunday, month, year.
+
+Examples:
+  ${_ME} every weekday "tomorrow 9am" standup meeting
+  ${_ME} every "tuesday,thursday" "tomorrow 3pm" team sync
+HEREDOC
+every() {
+  local _rules_str="${1:-}"
+  shift || true
+  local _time_str="${1:-}"
+  shift || true
+  local _message
+  IFS=' ' _message="${*:-}"
+  IFS=$'\n\t'
+
+  [[ -n "${_rules_str}" ]] || _exit_1 printf "Usage: %s every <rules> <time> <message...>\\n" "${_ME}"
+  [[ -n "${_time_str}" ]]  || _exit_1 printf "Usage: %s every <rules> <time> <message...>\\n" "${_ME}"
+  [[ -n "${_message}" ]]   || _exit_1 printf "No message specified.\\n"
+
+  _validate_rules "${_rules_str}"
+
+  local _timestamp
+  _timestamp="$(_parse_time "${_time_str}")"
+
+  # Snap to the first occurrence that matches the rule.
+  _timestamp="$(_first_occurrence "${_rules_str}" "${_timestamp}")"
+
+  _acquire_lock
+  local _id
+  _id="$(_next_id)"
+
+  # _next_id calls _read_alarms in a subshell, so _ALARMS isn't populated here.
+  _read_alarms
+  _ALARMS+=("$(printf "%s\t%s\t%s\t%s" "${_id}" "${_timestamp}" "${_rules_str}" "${_message}")")
+  _write_alarms
+  _release_lock
+
+  _prompt_cron
+
+  local _human_time
+  _human_time="$(_format_time "${_timestamp}")"
+  printf "[%s] %s (%s) — %s\\n" "${_id}" "${_human_time}" "${_rules_str//,/, }" "${_message}"
 }
 
 # _main must be called after everything has been defined.

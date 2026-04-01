@@ -146,6 +146,61 @@ load test_helper
   [ "${status}" -eq 1 ]
 }
 
+@test "help every shows every usage" {
+  run_nag help every
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "Usage:" ]]
+  [[ "${output}" =~ "every <rules> <time> <message...>" ]]
+}
+
+@test "every creates a repeating alarm" {
+  run_nag every weekday "tomorrow 3pm" standup meeting
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "[1]" ]]
+  [[ "${output}" =~ "(weekday)" ]]
+  [[ "${output}" =~ "standup meeting" ]]
+  # Verify TSV has rule in field 3.
+  local _rule
+  _rule="$(cut -f3 "${NAG_PATH}")"
+  [ "${_rule}" = "weekday" ]
+}
+
+@test "every with comma-separated rules" {
+  run_nag every "tuesday,thursday" "tomorrow 3pm" standup
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "(tuesday, thursday)" ]]
+  grep -q "tuesday,thursday" "${NAG_PATH}"
+}
+
+@test "every snaps to next matching day" {
+  # "weekend 3pm" should snap to Saturday or Sunday, not a weekday.
+  run_nag every weekend "tomorrow 3pm" relax
+  [ "${status}" -eq 0 ]
+  local _ts _dow
+  _ts="$(cut -f2 "${NAG_PATH}")"
+  _dow="$(date -d "@${_ts}" +%u)"
+  # Day-of-week should be 6 (Sat) or 7 (Sun).
+  [[ "${_dow}" == "6" || "${_dow}" == "7" ]]
+}
+
+@test "every with invalid rule fails" {
+  run_nag every "invalid_rule" "tomorrow 3pm" some message
+  [ "${status}" -eq 1 ]
+}
+
+@test "every without message fails" {
+  run_nag every weekday "tomorrow 3pm"
+  [ "${status}" -eq 1 ]
+}
+
+@test "list shows repeating alarm with rule in parens" {
+  run_nag every weekday "tomorrow 3pm" standup
+  run_nag
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "(weekday)" ]]
+  [[ "${output}" =~ "standup" ]]
+}
+
 @test "list sorts alarms by time" {
   run_nag at "tomorrow 3pm" "take a break"
   run_nag at "tomorrow 9am" "standup"
