@@ -42,7 +42,7 @@ _LOCKFILE="${NAG_PATH}.lock"
 NAG_CMD="${NAG_CMD:-notify-send}"
 
 # The default subcommand if no args are passed.
-DEFAULT_SUBCOMMAND="${DEFAULT_SUBCOMMAND:-list}"
+NAG_DEFAULT="${NAG_DEFAULT:-list}"
 
 # The fallback subcommand if an arg is passed that is not defined.
 _FALLBACK_COMMAND_IF_NO_MATCH="at"
@@ -329,7 +329,7 @@ _DEFINED_SUBCOMMANDS=()
 _main() {
   if [[ -z "${_SUBCOMMAND}" ]]
   then
-    _SUBCOMMAND="${DEFAULT_SUBCOMMAND}"
+    _SUBCOMMAND="${NAG_DEFAULT}"
   fi
 
   for __name in $(declare -F)
@@ -502,6 +502,87 @@ _get_alarm_field() {
   fi
 }
 
+# Usage:
+#   _parse_time <time-string>
+#
+# Description:
+#   Parse a human-readable time string via `date -d` and print a unix
+#   timestamp. If the resulting time is in the past, roll forward to
+#   the same time-of-day tomorrow.
+_parse_time() {
+  local _time_str="${1:-}"
+  [[ -n "${_time_str}" ]] || _exit_1 printf "No time specified.\\n"
+
+  local _timestamp
+  _timestamp="$(date -d "${_time_str}" +%s 2>/dev/null)" ||
+    _exit_1 printf "Invalid time: %s\\n" "${_time_str}"
+
+  local _now
+  _now="$(date +%s)"
+
+  if [[ "${_timestamp}" -le "${_now}" ]]
+  then
+    local _time_of_day
+    _time_of_day="$(date -d "@${_timestamp}" +%H:%M:%S)"
+    _timestamp="$(date -d "tomorrow ${_time_of_day}" +%s)" ||
+      _exit_1 printf "Could not compute next day for: %s\\n" "${_time_str}"
+  fi
+
+  printf "%s" "${_timestamp}"
+}
+
+# Usage:
+#   _prompt_cron
+#
+# Description:
+#   Check whether a cron entry for `nag check` exists. If not, prompt the
+#   user to install one (or install automatically when --yes is set).
+_prompt_cron() {
+  if ! _command_exists crontab
+  then
+    _warn printf "crontab not found. Without a cron daemon, alarms will not trigger.\\n"
+    return 0
+  fi
+
+  if crontab -l 2>/dev/null | grep -qF "${_ME} check"
+  then
+    return 0
+  fi
+
+  if ((_YES))
+  then
+    _install_cron
+    return 0
+  fi
+
+  if _interactive_input
+  then
+    printf "A cron job for '%s check' is needed to trigger timers. Add one? [Y/n] " "${_ME}"
+    local _reply
+    read -r _reply
+    case "${_reply}" in
+      [nN]*)
+        return 0
+        ;;
+      *)
+        _install_cron
+        ;;
+    esac
+  fi
+}
+
+# Usage:
+#   _install_cron
+#
+# Description:
+#   Append a `* * * * * nag check` entry to the current user's crontab.
+_install_cron() {
+  local _nag_path
+  _nag_path="$(command -v nag 2>/dev/null || printf "%s" "$(cd "$(dirname "${0}")" && pwd)/nag")"
+  (crontab -l 2>/dev/null; printf "* * * * * %s check\\n" "${_nag_path}") | crontab -
+  printf "cron entry added.\\n"
+}
+
 ###############################################################################
 # Subcommands
 ###############################################################################
@@ -563,8 +644,7 @@ Usage:
   ${_ME} list
 
 Description:
-  List all alarms. This is the default ${_ME} command when no arguments
-  are given. This can be overriden with NAG_DEFAUL
+  List all alarms. This is the default when no subcommand is given.
 HEREDOC
 list() {
   if [[ ! -f "${NAG_PATH}" ]] || [[ ! -s "${NAG_PATH}" ]]
@@ -590,7 +670,31 @@ Examples:
   ${_ME} "tomorrow 9am" dentist appointment
 HEREDOC
 at() {
-  _exit_1 printf "Not yet implemented.\\n"
+  local _time_str="${1:-}"
+  shift || true
+  local _message="${*:-}"
+
+  [[ -n "${_time_str}" ]] || _exit_1 printf "Usage: ${_ME} [at] <time> <message>\\n"
+  [[ -n "${_message}" ]]  || _exit_1 printf "No message specified.\\n"
+
+  local _timestamp
+  _timestamp="$(_parse_time "${_time_str}")"
+
+  _acquire_lock
+  local _id
+  _id="$(_next_id)"
+
+  # _next_id calls _read_alarms in a subshell, so _ALARMS isn't populated here.
+  _read_alarms
+  _ALARMS+=("$(printf "%s\t%s\t\t%s" "${_id}" "${_timestamp}" "${_message}")")
+  _write_alarms
+  _release_lock
+
+  _prompt_cron
+
+  local _human_time
+  _human_time="$(date -d "@${_timestamp}" "+%a %b %-d %-I:%M%p" | sed 's/AM/am/;s/PM/pm/')"
+  printf "[%s] %s — %s\\n" "${_id}" "${_human_time}" "${_message}"
 }
 
 # _main must be called after everything has been defined.

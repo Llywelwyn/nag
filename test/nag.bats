@@ -41,8 +41,50 @@ load test_helper
   [[ "${output}" =~ "( version | --version )" ]]
 }
 
-@test "version shows version" {
+@test "version shows current version" {
   run_nag version
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ ^[0-9]+\.[0-9]+(_[a-zA-Z0-9]+)*$ ]]
+}
+
+@test "at creates a one-shot alarm" {
+  run_nag at "tomorrow 3pm" "take a break"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "[1]" ]]
+  [[ "${output}" =~ "take a break" ]]
+  [ -f "${NAG_PATH}" ]
+  [ "$(wc -l < "${NAG_PATH}")" -eq 1 ]
+  # Verify TSV structure: id<TAB>timestamp<TAB><TAB>message
+  local _line
+  _line="$(cat "${NAG_PATH}")"
+  [[ "${_line}" =~ ^1$'\t'[0-9]+$'\t'$'\t'take\ a\ break$ ]]
+}
+
+@test "at is the implicit subcommand" {
+  run_nag "tomorrow 3pm" "take a break"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "[1]" ]]
+  [[ "${output}" =~ "take a break" ]]
+}
+
+@test "at with invalid time fails" {
+  run_nag at "notavalidtime" "some message"
+  [ "${status}" -eq 1 ]
+}
+
+@test "at without message fails" {
+  run_nag at "tomorrow 3pm"
+  [ "${status}" -eq 1 ]
+}
+
+@test "list is the default subcommand" {
+  run_nag
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "Nothing to nag about" ]]
+}
+
+@test "NAG_DEFAULT overrides the default subcommand" {
+  NAG_DEFAULT="version" run_nag
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ ^[0-9]+\.[0-9]+(_[a-zA-Z0-9]+)*$ ]]
 }
