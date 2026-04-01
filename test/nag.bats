@@ -168,8 +168,8 @@ load test_helper
 @test "every with comma-separated rules" {
   run_nag every "tuesday,thursday" "tomorrow 3pm" standup
   [ "${status}" -eq 0 ]
-  [[ "${output}" =~ "(tuesday, thursday)" ]]
-  grep -q "tuesday,thursday" "${NAG_PATH}"
+  [[ "${output}" =~ "(tue, thu)" ]]
+  grep -q "tue,thu" "${NAG_PATH}"
 }
 
 @test "every snaps to next matching day" {

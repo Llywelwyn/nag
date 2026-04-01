@@ -44,12 +44,6 @@ NAG_CMD="${NAG_CMD:-notify-send}"
 # The default subcommand if no args are passed.
 NAG_DEFAULT="${NAG_DEFAULT:-list}"
 
-_VALID_RULES=(
-  hour day weekday weekend
-  monday tuesday wednesday thursday friday saturday sunday
-  month year
-)
-
 # The fallback subcommand if an arg is passed that is not defined.
 _FALLBACK_COMMAND_IF_NO_MATCH="at"
 
@@ -558,24 +552,66 @@ _format_time() {
 }
 
 # Usage:
-#   _validate_rules <rules_string>
+#   _normalise_rule <rule>
 #
 # Description:
-#   Validate a comma-separated list of repeat rules. Exits with error
-#   if any rule is invalid.
-_validate_rules() {
+#   Map a rule alias to its canonical short form. Prints the canonical
+#   form to stdout. Input is expected to be lowercase.
+_normalise_rule() {
+  case "${1}" in
+    h|hr|hour|hours|hourly)           printf "hourly" ;;
+    d|day|days|daily)                  printf "daily" ;;
+    week|weekly)                       printf "weekly" ;;
+    weekday|weekdays)                  printf "weekday" ;;
+    weekend|weekends)                  printf "weekend" ;;
+    mon|monday|mondays)                printf "mon" ;;
+    tue|tuesday|tuesdays)              printf "tue" ;;
+    wed|wednesday|wednesdays)          printf "wed" ;;
+    thurs|thursday|thursdays)          printf "thu" ;;
+    fri|friday|fridays)                printf "fri" ;;
+    sat|saturday|saturdays)            printf "sat" ;;
+    sun|sunday|sundays)                printf "sun" ;;
+    month|months|monthly)              printf "monthly" ;;
+    year|years|yearly)                 printf "yearly" ;;
+    *)                                 return 1 ;;
+  esac
+}
+
+# Usage:
+#   _validate_and_normalise_rules <rules_string>
+#
+# Description:
+#   Validate and normalise a comma-separated list of repeat rules.
+#   Input is case-insensitive. Prints the normalised comma-separated
+#   rules to stdout. Exits with error if any rule is invalid.
+_validate_and_normalise_rules() {
   local _rules_str="${1:-}"
   [[ -n "${_rules_str}" ]] || _exit_1 printf "No rules specified.\\n"
 
+  # Lowercase the input.
+  _rules_str="$(printf "%s" "${_rules_str}" | tr '[:upper:]' '[:lower:]')"
+
+  local _normalised=()
   local IFS=","
   local _rule
   for _rule in ${_rules_str}
   do
-    if ! _contains "${_rule}" "${_VALID_RULES[@]}"
-    then
+    local _canon
+    _canon="$(_normalise_rule "${_rule}")" ||
       _exit_1 printf "Invalid rule: %s\\n" "${_rule}"
-    fi
+    _normalised+=("${_canon}")
   done
+  IFS=$'\n\t'
+
+  # Join with commas.
+  local _result="${_normalised[0]}"
+  local _i
+  for (( _i=1; _i<${#_normalised[@]}; _i++ ))
+  do
+    _result="${_result},${_normalised[${_i}]}"
+  done
+
+  printf "%s" "${_result}"
 }
 
 # Usage:
@@ -593,7 +629,6 @@ _next_occurrence() {
   local _rule
   for _rule in ${_rules_str}
   do
-    IFS=$'\n\t'
     local _next
     _next="$(_next_for_rule "${_rule}" "${_timestamp}")"
     if [[ -z "${_earliest}" ]] || (( _next < _earliest ))
@@ -601,7 +636,6 @@ _next_occurrence() {
       _earliest="${_next}"
     fi
   done
-  IFS=$'\n\t'
 
   printf "%s" "${_earliest}"
 }
@@ -618,31 +652,20 @@ _next_for_rule() {
   _time_of_day="$(date -d "@${_timestamp}" +%H:%M:%S)"
 
   case "${_rule}" in
-    hour)
-      printf "%s" "$((_timestamp + 3600))"
-      ;;
-    day)
-      date -d "$(date -d "@${_timestamp}" +%Y-%m-%d) + 1 day ${_time_of_day}" +%s
-      ;;
-    weekday)
-      _next_matching_day "${_timestamp}" "${_time_of_day}" "1 2 3 4 5"
-      ;;
-    weekend)
-      _next_matching_day "${_timestamp}" "${_time_of_day}" "6 7"
-      ;;
-    monday)    _next_matching_day "${_timestamp}" "${_time_of_day}" "1" ;;
-    tuesday)   _next_matching_day "${_timestamp}" "${_time_of_day}" "2" ;;
-    wednesday) _next_matching_day "${_timestamp}" "${_time_of_day}" "3" ;;
-    thursday)  _next_matching_day "${_timestamp}" "${_time_of_day}" "4" ;;
-    friday)    _next_matching_day "${_timestamp}" "${_time_of_day}" "5" ;;
-    saturday)  _next_matching_day "${_timestamp}" "${_time_of_day}" "6" ;;
-    sunday)    _next_matching_day "${_timestamp}" "${_time_of_day}" "7" ;;
-    month)
-      _next_month "${_timestamp}" "${_time_of_day}"
-      ;;
-    year)
-      _next_year "${_timestamp}" "${_time_of_day}"
-      ;;
+    hourly)   printf "%s" "$((_timestamp + 3600))" ;;
+    daily)    date -d "$(date -d "@${_timestamp}" +%Y-%m-%d) + 1 day ${_time_of_day}" +%s ;;
+    weekly)   _next_matching_day "${_timestamp}" "${_time_of_day}" "$(date -d "@${_timestamp}" +%u)" ;;
+    weekday) _next_matching_day "${_timestamp}" "${_time_of_day}" "1 2 3 4 5" ;;
+    weekend) _next_matching_day "${_timestamp}" "${_time_of_day}" "6 7" ;;
+    mon)    _next_matching_day "${_timestamp}" "${_time_of_day}" "1" ;;
+    tue)    _next_matching_day "${_timestamp}" "${_time_of_day}" "2" ;;
+    wed)    _next_matching_day "${_timestamp}" "${_time_of_day}" "3" ;;
+    thu)    _next_matching_day "${_timestamp}" "${_time_of_day}" "4" ;;
+    fri)    _next_matching_day "${_timestamp}" "${_time_of_day}" "5" ;;
+    sat)    _next_matching_day "${_timestamp}" "${_time_of_day}" "6" ;;
+    sun)    _next_matching_day "${_timestamp}" "${_time_of_day}" "7" ;;
+    monthly)  _next_month "${_timestamp}" "${_time_of_day}" ;;
+    yearly)   _next_year "${_timestamp}" "${_time_of_day}" ;;
   esac
 }
 
@@ -757,16 +780,13 @@ _first_occurrence() {
     local _rule
     for _rule in ${_rules_str}
     do
-      IFS=$'\n\t'
       local _next
       _next="$(_next_for_rule "${_rule}" "${_yesterday}")"
-      # Ensure we don't go before the original timestamp's time today.
       if [[ -z "${_earliest}" ]] || (( _next < _earliest ))
       then
         _earliest="${_next}"
       fi
     done
-    IFS=$'\n\t'
 
     printf "%s" "${_earliest}"
   fi
@@ -788,20 +808,18 @@ _timestamp_matches_rule() {
   for _rule in ${_rules_str}
   do
     case "${_rule}" in
-      hour|day)    IFS=$'\n\t'; return 0 ;;
-      weekday)     [[ " 1 2 3 4 5 " == *" ${_dow} "* ]] && { IFS=$'\n\t'; return 0; } ;;
-      weekend)     [[ " 6 7 " == *" ${_dow} "* ]] && { IFS=$'\n\t'; return 0; } ;;
-      monday)      [[ "${_dow}" == "1" ]] && { IFS=$'\n\t'; return 0; } ;;
-      tuesday)     [[ "${_dow}" == "2" ]] && { IFS=$'\n\t'; return 0; } ;;
-      wednesday)   [[ "${_dow}" == "3" ]] && { IFS=$'\n\t'; return 0; } ;;
-      thursday)    [[ "${_dow}" == "4" ]] && { IFS=$'\n\t'; return 0; } ;;
-      friday)      [[ "${_dow}" == "5" ]] && { IFS=$'\n\t'; return 0; } ;;
-      saturday)    [[ "${_dow}" == "6" ]] && { IFS=$'\n\t'; return 0; } ;;
-      sunday)      [[ "${_dow}" == "7" ]] && { IFS=$'\n\t'; return 0; } ;;
-      month|year)  IFS=$'\n\t'; return 0 ;;
+      hour|day|week|month|year) return 0 ;;
+      weekday) [[ " 1 2 3 4 5 " == *" ${_dow} "* ]] && return 0 ;;
+      weekend) [[ " 6 7 " == *" ${_dow} "* ]] && return 0 ;;
+      mon) [[ "${_dow}" == "1" ]] && return 0 ;;
+      tue) [[ "${_dow}" == "2" ]] && return 0 ;;
+      wed) [[ "${_dow}" == "3" ]] && return 0 ;;
+      thu) [[ "${_dow}" == "4" ]] && return 0 ;;
+      fri) [[ "${_dow}" == "5" ]] && return 0 ;;
+      sat) [[ "${_dow}" == "6" ]] && return 0 ;;
+      sun) [[ "${_dow}" == "7" ]] && return 0 ;;
     esac
   done
-  IFS=$'\n\t'
   return 1
 }
 
@@ -1127,7 +1145,7 @@ every() {
   [[ -n "${_time_str}" ]]  || _exit_1 printf "Usage: %s every <rules> <time> <message...>\\n" "${_ME}"
   [[ -n "${_message}" ]]   || _exit_1 printf "No message specified.\\n"
 
-  _validate_rules "${_rules_str}"
+  _rules_str="$(_validate_and_normalise_rules "${_rules_str}")"
 
   local _timestamp
   _timestamp="$(_parse_time "${_time_str}")"
