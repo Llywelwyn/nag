@@ -51,11 +51,11 @@ load test_helper
   run_nag at "tomorrow 3pm" "take a break"
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "[1] Tomorrow, 3pm — take a break" ]]
-  [ -f "${NAG_PATH}" ]
-  [ "$(wc -l < "${NAG_PATH}")" -eq 1 ]
+  [ -f "${NAG_DIR}/alarms" ]
+  [ "$(wc -l < "${NAG_DIR}/alarms")" -eq 1 ]
   # Verify TSV structure: id<TAB>timestamp<TAB><TAB>message
   local _line
-  _line="$(cat "${NAG_PATH}")"
+  _line="$(cat "${NAG_DIR}/alarms")"
   [[ "${_line}" =~ ^1$'\t'[0-9]+$'\t'$'\t'take\ a\ break$ ]]
 }
 
@@ -161,7 +161,7 @@ load test_helper
   [[ "${output}" =~ "standup meeting" ]]
   # Verify TSV has rule in field 3.
   local _rule
-  _rule="$(cut -f3 "${NAG_PATH}")"
+  _rule="$(cut -f3 "${NAG_DIR}/alarms")"
   [ "${_rule}" = "weekday" ]
 }
 
@@ -169,7 +169,7 @@ load test_helper
   run_nag every "tuesday,thursday" "tomorrow 3pm" standup
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "(tue, thu)" ]]
-  grep -q "tue,thu" "${NAG_PATH}"
+  grep -q "tue,thu" "${NAG_DIR}/alarms"
 }
 
 @test "every snaps to next matching day" {
@@ -177,7 +177,7 @@ load test_helper
   run_nag every weekend "tomorrow 3pm" relax
   [ "${status}" -eq 0 ]
   local _ts _dow
-  _ts="$(cut -f2 "${NAG_PATH}")"
+  _ts="$(cut -f2 "${NAG_DIR}/alarms")"
   _dow="$(date -d "@${_ts}" +%u)"
   # Day-of-week should be 6 (Sat) or 7 (Sun).
   [[ "${_dow}" == "6" || "${_dow}" == "7" ]]

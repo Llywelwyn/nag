@@ -4,14 +4,13 @@
 _NAG="$(cd "$(dirname "${BATS_TEST_FILENAME}")/.." && pwd)/nag"
 
 setup() {
-  export NAG_PATH
-  NAG_PATH="$(mktemp)"
-  rm -f "${NAG_PATH}"
+  export NAG_DIR
+  NAG_DIR="$(mktemp -d)"
   export NAG_CMD="true"
 }
 
 teardown() {
-  rm -f "${NAG_PATH}" "${NAG_PATH}.lock"
+  rm -rf "${NAG_DIR}"
 }
 
 run_nag() {

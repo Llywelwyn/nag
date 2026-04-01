@@ -35,8 +35,9 @@ IFS=$'\n\t'
 _ME="$(basename "${0}")"
 _VERSION="2026.14"
 
-NAG_PATH="${NAG_PATH:-${HOME}/.local/share/nag}"
-_LOCKFILE="${NAG_PATH}.lock"
+NAG_DIR="${NAG_DIR:-${HOME}/.local/share/nag}"
+_ALARMS_FILE="${NAG_DIR}/alarms"
+_LOCKFILE="${NAG_DIR}/alarms.lock"
 
 # The command nag runs to execute its notifications.
 NAG_CMD="${NAG_CMD:-notify-send}"
@@ -371,11 +372,9 @@ _ALARMS=()
 #   _ensure_nag_dir
 #
 # Description:
-#   Create the parent directory for NAG_PATH if it doesn't already exist.
+#   Create the nag directory if it doesn't already exist.
 _ensure_nag_dir() {
-  local _dir
-  _dir="$(dirname "${NAG_PATH}")"
-  [[ -d "${_dir}" ]] || mkdir -p "${_dir}"
+  [[ -d "${NAG_DIR}" ]] || mkdir -p "${NAG_DIR}"
 }
 
 # Usage:
@@ -409,18 +408,18 @@ _release_lock() {
 #   _read_alarms
 #
 # Description:
-#   Read alarms from NAG_PATH into the global _ALARMS array. Each element
+#   Read alarms from _ALARMS_FILE into the global _ALARMS array. Each element
 #   is one raw TSV line. If the file is missing or empty, _ALARMS is set to
 #   an empty array.
 _read_alarms() {
   _ALARMS=()
-  if [[ -f "${NAG_PATH}" ]] && [[ -s "${NAG_PATH}" ]]
+  if [[ -f "${_ALARMS_FILE}" ]] && [[ -s "${_ALARMS_FILE}" ]]
   then
     local _line
     while IFS= read -r _line || [[ -n "${_line}" ]]
     do
       [[ -n "${_line}" ]] && _ALARMS+=("${_line}")
-    done < "${NAG_PATH}" || true
+    done < "${_ALARMS_FILE}" || true
   fi
 }
 
@@ -428,20 +427,20 @@ _read_alarms() {
 #   _write_alarms
 #
 # Description:
-#   Write the _ALARMS array atomically to NAG_PATH. Writes to a temporary
+#   Write the _ALARMS array atomically to _ALARMS_FILE. Writes to a temporary
 #   file first, then moves it over the original. If _ALARMS is empty, an
 #   empty file is written.
 _write_alarms() {
   _ensure_nag_dir
   local _tmp
-  _tmp="$(mktemp "${NAG_PATH}.XXXXXX")"
+  _tmp="$(mktemp "${_ALARMS_FILE}.XXXXXX")"
   if (( ${#_ALARMS[@]} > 0 ))
   then
     printf "%s\n" "${_ALARMS[@]}" > "${_tmp}"
   else
     : > "${_tmp}"
   fi
-  mv -f "${_tmp}" "${NAG_PATH}"
+  mv -f "${_tmp}" "${_ALARMS_FILE}"
 }
 
 # Usage:
@@ -978,7 +977,7 @@ Description:
   List all alarms. This is the default when no subcommand is given.
 HEREDOC
 list() {
-  if [[ ! -f "${NAG_PATH}" ]] || [[ ! -s "${NAG_PATH}" ]]
+  if [[ ! -f "${_ALARMS_FILE}" ]] || [[ ! -s "${_ALARMS_FILE}" ]]
   then
     printf "Nothing to nag about.\\n"
     return 0
@@ -1063,7 +1062,7 @@ stop() {
   if [[ "${#_new_alarms[@]}" -eq 0 ]]
   then
     _ALARMS=()
-    : > "${NAG_PATH}"
+    : > "${_ALARMS_FILE}"
   else
     _ALARMS=("${_new_alarms[@]}")
     _write_alarms
