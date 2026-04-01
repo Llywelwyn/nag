@@ -42,6 +42,10 @@ _LOCKFILE="${NAG_DIR}/alarms.lock"
 # The command nag runs to execute its notifications.
 NAG_CMD="${NAG_CMD:-notify-send}"
 
+# Sound file to play when an alarm fires. Empty or missing file = no sound.
+NAG_SOUND="${NAG_SOUND:-/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga}"
+_MUTED_FILE="${NAG_DIR}/muted"
+
 # The default subcommand if no args are passed.
 NAG_DEFAULT="${NAG_DEFAULT:-list}"
 
