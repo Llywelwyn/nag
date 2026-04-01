@@ -373,6 +373,23 @@ _main() {
 _ALARMS=()
 
 # Usage:
+#   _play_sound
+#
+# Description:
+#   Play the alarm sound if NAG_SOUND exists and not muted.
+_play_sound() {
+  [[ -n "${NAG_SOUND}" ]] && [[ -f "${NAG_SOUND}" ]] && [[ ! -f "${_MUTED_FILE}" ]] || return 0
+
+  if _command_exists pw-play; then
+    pw-play "${NAG_SOUND}" &
+  elif _command_exists paplay; then
+    paplay "${NAG_SOUND}" &
+  elif _command_exists aplay; then
+    aplay "${NAG_SOUND}" &
+  fi
+}
+
+# Usage:
 #   _ensure_nag_dir
 #
 # Description:
@@ -1111,6 +1128,7 @@ check() {
     then
       # Fire it.
       ${NAG_CMD} "nag" "${_message}" || _warn printf "Failed to notify: %s\\n" "${_message}"
+      _play_sound
 
       if [[ -n "${_rule}" ]]
       then
