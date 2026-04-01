@@ -298,6 +298,53 @@ SCRIPT
   [[ ! -s "${NAG_DIR}/alarms" ]] || [ "$(wc -l < "${NAG_DIR}/alarms")" -eq 0 ]
 }
 
+@test "check silently drops stale one-shot (older than 15 min)" {
+  local _stale_ts=$(( $(date +%s) - 1800 ))  # 30 minutes ago
+  write_alarm "$(printf "1\t%s\t\tstale alarm" "${_stale_ts}")"
+
+  local _fired="${NAG_DIR}/fired"
+  export NAG_CMD="${NAG_DIR}/recorder"
+  cat > "${NAG_CMD}" <<'SCRIPT'
+#!/usr/bin/env bash
+printf "%s\n" "$2" >> "${NAG_DIR}/fired"
+SCRIPT
+  chmod +x "${NAG_CMD}"
+
+  run_nag check
+  [ "${status}" -eq 0 ]
+
+  # Should NOT have fired.
+  [ ! -f "${_fired}" ]
+
+  # Should still be removed.
+  [[ ! -s "${NAG_DIR}/alarms" ]] || [ "$(wc -l < "${NAG_DIR}/alarms")" -eq 0 ]
+}
+
+@test "check silently reschedules stale repeating alarm" {
+  local _stale_ts=$(( $(date +%s) - 1800 ))  # 30 minutes ago
+  write_alarm "$(printf "1\t%s\tday\tstale repeater" "${_stale_ts}")"
+
+  local _fired="${NAG_DIR}/fired"
+  export NAG_CMD="${NAG_DIR}/recorder"
+  cat > "${NAG_CMD}" <<'SCRIPT'
+#!/usr/bin/env bash
+printf "%s\n" "$2" >> "${NAG_DIR}/fired"
+SCRIPT
+  chmod +x "${NAG_CMD}"
+
+  run_nag check
+  [ "${status}" -eq 0 ]
+
+  # Should NOT have fired.
+  [ ! -f "${_fired}" ]
+
+  # Should be rescheduled to a future time.
+  [ -s "${NAG_DIR}/alarms" ]
+  local _new_ts
+  _new_ts="$(cut -f2 "${NAG_DIR}/alarms" | head -1)"
+  (( _new_ts > $(date +%s) ))
+}
+
 @test "help check shows check usage" {
   run_nag help check
   [ "${status}" -eq 0 ]

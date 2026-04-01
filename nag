@@ -1165,9 +1165,25 @@ check() {
 
     if (( _timestamp <= _now ))
     then
-      # Fire it.
-      ${NAG_CMD} "nag" "${_message}" || _warn printf "Failed to notify: %s\\n" "${_message}"
-      _play_sound
+      local _age=$(( _now - _timestamp ))
+      local _should_fire=0
+
+      if (( _age <= 900 ))
+      then
+        # Within 15 minutes, fire.
+        _should_fire=1
+      elif [[ "${_rule}" == "year" ]] && \
+           [[ "$(date -d "@${_timestamp}" +%Y-%m-%d)" == "$(date +%Y-%m-%d)" ]]
+      then
+        # Yearly alarm, still the same day.
+        _should_fire=1
+      fi
+
+      if (( _should_fire ))
+      then
+        ${NAG_CMD} "nag" "${_message}" || _warn printf "Failed to notify: %s\\n" "${_message}"
+        _play_sound
+      fi
 
       if [[ -n "${_rule}" ]]
       then
