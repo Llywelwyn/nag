@@ -36,10 +36,16 @@ _ME="$(basename "${0}")"
 _VERSION="2026.14"
 
 NAG_PATH="${NAG_PATH:-${HOME}/.local/share/nag}"
-NAG_CMD="${NAG_CMD:-notify-send}"
 _LOCKFILE="${NAG_PATH}.lock"
 
+# The command nag runs to execute its notifications.
+NAG_CMD="${NAG_CMD:-notify-send}"
+
+# The default subcommand if no args are passed.
 DEFAULT_SUBCOMMAND="${DEFAULT_SUBCOMMAND:-list}"
+
+# The fallback subcommand if an arg is passed that is not defined.
+_FALLBACK_COMMAND_IF_NO_MATCH="at"
 
 # Usage:
 #   _debug <command> <options>...
@@ -199,17 +205,6 @@ _piped_input() {
   ! _interactive_input
 }
 
-# _create_alarm()
-#
-# Usage:
-#   _create_alarm <arguments>...
-#
-# Description:
-#   Create a new alarm. Stub for future implementation.
-_create_alarm() {
-  _exit_1 printf "Not yet implemented.\\n"
-}
-
 # Usage:
 #   describe <name> <description>
 #   describe --get <name>
@@ -360,10 +355,152 @@ _main() {
   then
     ${_SUBCOMMAND} "${_SUBCOMMAND_ARGUMENTS[@]:-}"
   else
-    _create_alarm "${_SUBCOMMAND}" "${_SUBCOMMAND_ARGUMENTS[@]:-}"
+    "${_FALLBACK_COMMAND_IF_NO_MATCH}" "${_SUBCOMMAND}" "${_SUBCOMMAND_ARGUMENTS[@]:-}"
   fi
 }
 
+
+###############################################################################
+# Storage
+###############################################################################
+
+# Global array holding raw TSV alarm lines (one element per alarm).
+_ALARMS=()
+
+# Usage:
+#   _ensure_nag_dir
+#
+# Description:
+#   Create the parent directory for NAG_PATH if it doesn't already exist.
+_ensure_nag_dir() {
+  local _dir
+  _dir="$(dirname "${NAG_PATH}")"
+  [[ -d "${_dir}" ]] || mkdir -p "${_dir}"
+}
+
+# Usage:
+#   _acquire_lock
+#
+# Description:
+#   Acquire an exclusive lock on ${_LOCKFILE} using flock. Exits with an
+#   error if the lock cannot be obtained (another instance is running).
+_acquire_lock() {
+  _ensure_nag_dir
+  exec {_LOCK_FD}>"${_LOCKFILE}"
+  if ! flock -n "${_LOCK_FD}"
+  then
+    _exit_1 printf "Could not acquire lock: %s\\n" "${_LOCKFILE}"
+  fi
+}
+
+# Usage:
+#   _release_lock
+#
+# Description:
+#   Release the exclusive lock previously acquired by _acquire_lock.
+_release_lock() {
+  if [[ -n "${_LOCK_FD:-}" ]]
+  then
+    exec {_LOCK_FD}>&-
+  fi
+}
+
+# Usage:
+#   _read_alarms
+#
+# Description:
+#   Read alarms from NAG_PATH into the global _ALARMS array. Each element
+#   is one raw TSV line. If the file is missing or empty, _ALARMS is set to
+#   an empty array.
+_read_alarms() {
+  _ALARMS=()
+  if [[ -f "${NAG_PATH}" ]] && [[ -s "${NAG_PATH}" ]]
+  then
+    local _line
+    while IFS= read -r _line || [[ -n "${_line}" ]]
+    do
+      _ALARMS+=("${_line}")
+    done < "${NAG_PATH}"
+  fi
+}
+
+# Usage:
+#   _write_alarms
+#
+# Description:
+#   Write the _ALARMS array atomically to NAG_PATH. Writes to a temporary
+#   file first, then moves it over the original. If _ALARMS is empty, an
+#   empty file is written.
+_write_alarms() {
+  _ensure_nag_dir
+  local _tmp
+  _tmp="$(mktemp "${NAG_PATH}.XXXXXX")"
+  if (( ${#_ALARMS[@]} > 0 ))
+  then
+    printf "%s\n" "${_ALARMS[@]}" > "${_tmp}"
+  else
+    : > "${_tmp}"
+  fi
+  mv -f "${_tmp}" "${NAG_PATH}"
+}
+
+# Usage:
+#   _next_id
+#
+# Description:
+#   Find the next available alarm ID (the first gap in the existing ID
+#   sequence starting from 1). Prints the ID to stdout.
+_next_id() {
+  _read_alarms
+  if (( ${#_ALARMS[@]} == 0 ))
+  then
+    printf "%s\n" "1"
+    return
+  fi
+
+  local _ids=()
+  local _line
+  for _line in "${_ALARMS[@]}"
+  do
+    _ids+=("$(printf "%s" "${_line}" | cut -f1)")
+  done
+
+  # Sort numerically
+  local _sorted
+  _sorted="$(printf "%s\n" "${_ids[@]}" | sort -n)"
+
+  local _expected=1
+  local _id
+  while IFS= read -r _id
+  do
+    if (( _id != _expected ))
+    then
+      printf "%s\n" "${_expected}"
+      return
+    fi
+    _expected=$((_expected + 1))
+  done <<< "${_sorted}"
+
+  printf "%s\n" "${_expected}"
+}
+
+# Usage:
+#   _get_alarm_field <line> <field-number>
+#
+# Description:
+#   Extract a field from a TSV alarm line.
+#   Fields: 1=id, 2=timestamp, 3=rule, 4=message.
+#   For field 4 (message), returns everything after the 3rd tab.
+_get_alarm_field() {
+  local _line="${1}"
+  local _field="${2}"
+  if (( _field == 4 ))
+  then
+    printf "%s" "${_line}" | cut -f4-
+  else
+    printf "%s" "${_line}" | cut -f"${_field}"
+  fi
+}
 
 ###############################################################################
 # Subcommands
@@ -426,7 +563,8 @@ Usage:
   ${_ME} list
 
 Description:
-  List all alarms. This is the default when no subcommand is given.
+  List all alarms. This is the default ${_ME} command when no arguments
+  are given. This can be overriden with NAG_DEFAUL
 HEREDOC
 list() {
   if [[ ! -f "${NAG_PATH}" ]] || [[ ! -s "${NAG_PATH}" ]]
@@ -434,6 +572,25 @@ list() {
     printf "Nothing to nag about.\\n"
     return 0
   fi
+}
+
+# at ##########################################################################
+
+describe "at" <<HEREDOC
+Usage:
+  ${_ME} [at] <time> <message...>
+
+Description:
+  Create a one-shot alarm. The "at" is optional. If the first argument
+  doesn't match any other subcommand of ${_ME}, it'll fallback to "at".
+
+Examples:
+  ${_ME} 3pm take a break
+  ${_ME} at 3pm take a break
+  ${_ME} "tomorrow 9am" dentist appointment
+HEREDOC
+at() {
+  _exit_1 printf "Not yet implemented.\\n"
 }
 
 # _main must be called after everything has been defined.
