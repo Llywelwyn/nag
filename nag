@@ -419,8 +419,8 @@ _read_alarms() {
     local _line
     while IFS= read -r _line || [[ -n "${_line}" ]]
     do
-      _ALARMS+=("${_line}")
-    done < "${NAG_PATH}"
+      [[ -n "${_line}" ]] && _ALARMS+=("${_line}")
+    done < "${NAG_PATH}" || true
   fi
 }
 
@@ -540,7 +540,7 @@ _format_time() {
     _date_prefix="Tomorrow"
   elif (( _days_away <= 6 ))
   then
-    _date_prefix="$(date -d "@${_timestamp}" "+%A")"
+    _date_prefix="This $(date -d "@${_timestamp}" "+%A")"
   elif (( _days_away <= 13 ))
   then
     _date_prefix="Next $(date -d "@${_timestamp}" "+%A")"
@@ -714,6 +714,12 @@ list() {
 
   _read_alarms
 
+  if (( ${#_ALARMS[@]} == 0 ))
+  then
+    printf "Nothing to nag about.\\n"
+    return 0
+  fi
+
   # Sort alarms by timestamp (field 2).
   local -a _sorted
   IFS=$'\n' _sorted=($(printf "%s\n" "${_ALARMS[@]}" | sort -t$'\t' -k2 -n))
@@ -741,6 +747,58 @@ list() {
 
     printf "[%s] %s%s — %s\\n" "${_id}" "${_rule_display}" "${_human_time}" "${_message}"
   done
+}
+
+# stop ########################################################################
+
+describe "stop" <<HEREDOC
+Usage:
+  ${_ME} stop <id>
+
+Description:
+  Stop an alarm by ID.
+HEREDOC
+stop() {
+  local _target_id="${1:-}"
+  [[ -n "${_target_id}" ]] || _exit_1 printf "Usage: %s stop <id>\\n" "${_ME}"
+
+  _acquire_lock
+  _read_alarms
+
+  local -a _new_alarms=()
+  local _found=0
+  local _line
+
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _id
+    _id="$(_get_alarm_field "${_line}" 1)"
+    if [[ "${_id}" == "${_target_id}" ]]
+    then
+      _found=1
+    else
+      _new_alarms+=("${_line}")
+    fi
+  done
+
+  if [[ "${_found}" -eq 0 ]]
+  then
+    _release_lock
+    _exit_1 printf "No alarm with ID %s.\\n" "${_target_id}"
+  fi
+
+  if [[ "${#_new_alarms[@]}" -eq 0 ]]
+  then
+    _ALARMS=()
+    : > "${NAG_PATH}"
+  else
+    _ALARMS=("${_new_alarms[@]}")
+    _write_alarms
+  fi
+  _release_lock
+
+  printf "Stopped alarm %s.\\n" "${_target_id}"
 }
 
 # at ##########################################################################
