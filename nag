@@ -651,20 +651,20 @@ _next_for_rule() {
   _time_of_day="$(date -d "@${_timestamp}" +%H:%M:%S)"
 
   case "${_rule}" in
-    hourly)   printf "%s" "$((_timestamp + 3600))" ;;
-    daily)    date -d "$(date -d "@${_timestamp}" +%Y-%m-%d) + 1 day ${_time_of_day}" +%s ;;
-    weekly)   _next_matching_day "${_timestamp}" "${_time_of_day}" "$(date -d "@${_timestamp}" +%u)" ;;
+    hour)    printf "%s" "$((_timestamp + 3600))" ;;
+    day)     date -d "$(date -d "@${_timestamp}" +%Y-%m-%d) + 1 day ${_time_of_day}" +%s ;;
+    week)    _next_matching_day "${_timestamp}" "${_time_of_day}" "$(date -d "@${_timestamp}" +%u)" ;;
     weekday) _next_matching_day "${_timestamp}" "${_time_of_day}" "1 2 3 4 5" ;;
     weekend) _next_matching_day "${_timestamp}" "${_time_of_day}" "6 7" ;;
-    mon)    _next_matching_day "${_timestamp}" "${_time_of_day}" "1" ;;
-    tue)    _next_matching_day "${_timestamp}" "${_time_of_day}" "2" ;;
-    wed)    _next_matching_day "${_timestamp}" "${_time_of_day}" "3" ;;
-    thu)    _next_matching_day "${_timestamp}" "${_time_of_day}" "4" ;;
-    fri)    _next_matching_day "${_timestamp}" "${_time_of_day}" "5" ;;
-    sat)    _next_matching_day "${_timestamp}" "${_time_of_day}" "6" ;;
-    sun)    _next_matching_day "${_timestamp}" "${_time_of_day}" "7" ;;
-    monthly)  _next_month "${_timestamp}" "${_time_of_day}" ;;
-    yearly)   _next_year "${_timestamp}" "${_time_of_day}" ;;
+    mon)     _next_matching_day "${_timestamp}" "${_time_of_day}" "1" ;;
+    tue)     _next_matching_day "${_timestamp}" "${_time_of_day}" "2" ;;
+    wed)     _next_matching_day "${_timestamp}" "${_time_of_day}" "3" ;;
+    thu)     _next_matching_day "${_timestamp}" "${_time_of_day}" "4" ;;
+    fri)     _next_matching_day "${_timestamp}" "${_time_of_day}" "5" ;;
+    sat)     _next_matching_day "${_timestamp}" "${_time_of_day}" "6" ;;
+    sun)     _next_matching_day "${_timestamp}" "${_time_of_day}" "7" ;;
+    month)   _next_month "${_timestamp}" "${_time_of_day}" ;;
+    year)    _next_year "${_timestamp}" "${_time_of_day}" ;;
   esac
 }
 
@@ -1070,6 +1070,67 @@ stop() {
   _release_lock
 
   printf "Stopped alarm %s.\\n" "${_target_id}"
+}
+
+# check #######################################################################
+
+describe "check" <<HEREDOC
+Usage:
+  ${_ME} check
+
+Description:
+  Fire expired alarms. Intended to be run by cron every minute.
+  Repeating alarms are rescheduled. One-shot alarms are removed.
+HEREDOC
+check() {
+  [[ -f "${_ALARMS_FILE}" ]] || return 0
+
+  _acquire_lock
+  _read_alarms
+
+  local -a _new_alarms=()
+  local _now
+  _now="$(date +%s)"
+  local _line
+
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+
+    local _id _timestamp _rule _message
+    _id="$(_get_alarm_field "${_line}" 1)"
+    _timestamp="$(_get_alarm_field "${_line}" 2)"
+    _rule="$(_get_alarm_field "${_line}" 3)"
+    _message="$(_get_alarm_field "${_line}" 4)"
+
+    if (( _timestamp <= _now ))
+    then
+      # Fire it.
+      ${NAG_CMD} "nag" "${_message}" || _warn printf "Failed to notify: %s\\n" "${_message}"
+
+      if [[ -n "${_rule}" ]]
+      then
+        # Repeating: reschedule.
+        local _next_ts
+        _next_ts="$(_next_occurrence "${_rule}" "${_timestamp}")"
+        _new_alarms+=("$(printf "%s\t%s\t%s\t%s" "${_id}" "${_next_ts}" "${_rule}" "${_message}")")
+      fi
+      # One-shot: drop it (don't add to _new_alarms).
+    else
+      # Not expired — keep it.
+      _new_alarms+=("${_line}")
+    fi
+  done
+
+  if [[ "${#_new_alarms[@]}" -eq 0 ]]
+  then
+    _ALARMS=()
+    : > "${_ALARMS_FILE}"
+  else
+    _ALARMS=("${_new_alarms[@]}")
+    _write_alarms
+  fi
+  _release_lock
 }
 
 # at ##########################################################################
