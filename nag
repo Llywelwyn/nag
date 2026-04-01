@@ -1,0 +1,440 @@
+#!/usr/bin/env bash
+
+# nag is a bash script for setting one-off or repeating alarms.
+
+# MIT License
+#
+# Copyright (c) 2026 Lewis Wynne
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# Enforce Bash "strict mode".
+set -o nounset
+set -o errexit
+set -o errtrace
+set -o pipefail
+trap 'echo "Aborting due to errexit on line $LINENO. Exit code: $?" >&2' ERR
+IFS=$'\n\t'
+
+_ME="$(basename "${0}")"
+_VERSION="2026.14"
+
+NAG_PATH="${NAG_PATH:-${HOME}/.local/share/nag}"
+NAG_CMD="${NAG_CMD:-notify-send}"
+_LOCKFILE="${NAG_PATH}.lock"
+
+DEFAULT_SUBCOMMAND="${DEFAULT_SUBCOMMAND:-list}"
+
+# Usage:
+#   _debug <command> <options>...
+#
+# Description:
+#   Execute a command and print to standard error. The command is expected to
+#   print a message and should typically be either `echo`, `printf`, or `cat`.
+#
+# Example:
+#   _debug printf "Debug info. Variable: %s\\n" "$0"
+__DEBUG_COUNTER=0
+_debug() {
+  if ((${_USE_DEBUG:-0}))
+  then
+    __DEBUG_COUNTER=$((__DEBUG_COUNTER+1))
+    {
+      # Prefix debug message with "bug (U+1F41B)"
+      printf "🐛  %s " "${__DEBUG_COUNTER}"
+      "${@}"
+      printf "―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――\\n"
+    } 1>&2
+  fi
+}
+
+# Usage:
+#   _exit_1 <command>
+#
+# Description:
+#   Exit with status 1 after executing the specified command with output
+#   redirected to standard error. The command is expected to print a message
+#   and should typically be either `echo`, `printf`, or `cat`.
+_exit_1() {
+  {
+    printf "%s " "$(tput setaf 1)!$(tput sgr0)"
+    "${@}"
+  } 1>&2
+  exit 1
+}
+
+# Usage:
+#   _warn <command>
+#
+# Description:
+#   Print the specified command with output redirected to standard error.
+#   The command is expected to print a message and should typically be either
+#   `echo`, `printf`, or `cat`.
+_warn() {
+  {
+    printf "%s " "$(tput setaf 1)!$(tput sgr0)"
+    "${@}"
+  } 1>&2
+}
+
+# Usage:
+#   _function_exists <name>
+#
+# Exit / Error Status:
+#   0 (success, true) If function with <name> is defined in the current
+#                     environment.
+#   1 (error,  false) If not.
+_function_exists() {
+  [ "$(type -t "${1}")" == 'function' ]
+}
+
+# Usage:
+#   _command_exists <name>
+#
+# Exit / Error Status:
+#   0 (success, true) If a command with <name> is defined in the current
+#                     environment.
+#   1 (error,  false) If not.
+_command_exists() {
+  hash "${1}" 2>/dev/null
+}
+
+# Usage:
+#   _contains <query> <list-item>...
+#
+# Exit / Error Status:
+#   0 (success, true)  If the item is included in the list.
+#   1 (error,  false)  If not.
+#
+# Examples:
+#   _contains "${_query}" "${_list[@]}"
+_contains() {
+  local _query="${1:-}"
+  shift
+
+  if [[ -z "${_query}"  ]] ||
+     [[ -z "${*:-}"     ]]
+  then
+    return 1
+  fi
+
+  for __element in "${@}"
+  do
+    [[ "${__element}" == "${_query}" ]] && return 0
+  done
+
+  return 1
+}
+
+# Usage:
+#   _join <delimiter> <list-item>...
+#
+# Description:
+#   Print a string containing all <list-item> arguments separated by
+#   <delimeter>.
+#
+# Example:
+#   _join "${_delimeter}" "${_list[@]}"
+_join() {
+  local _delimiter="${1}"
+  shift
+  printf "%s" "${1}"
+  shift
+  printf "%s" "${@/#/${_delimiter}}" | tr -d '[:space:]'
+}
+
+# Usage:
+#   _blank <argument>
+#
+# Exit / Error Status:
+#   0 (success, true)  If <argument> is not present or null.
+#   1 (error,  false)  If <argument> is present and not null.
+_blank() {
+  [[ -z "${1:-}" ]]
+}
+
+# Usage:
+#   _present <argument>
+#
+# Exit / Error Status:
+#   0 (success, true)  If <argument> is present and not null.
+#   1 (error,  false)  If <argument> is not present or null.
+_present() {
+  [[ -n "${1:-}" ]]
+}
+
+# Usage:
+#   _interactive_input
+#
+# Exit / Error Status:
+#   0 (success, true)  If the current input is interactive (eg, a shell).
+#   1 (error,  false)  If the current input is stdin / piped input.
+_interactive_input() {
+  [[ -t 0 ]]
+}
+
+# Usage:
+#   _piped_input
+#
+# Exit / Error Status:
+#   0 (success, true)  If the current input is stdin / piped input.
+#   1 (error,  false)  If the current input is interactive (eg, a shell).
+_piped_input() {
+  ! _interactive_input
+}
+
+# _create_alarm()
+#
+# Usage:
+#   _create_alarm <arguments>...
+#
+# Description:
+#   Create a new alarm. Stub for future implementation.
+_create_alarm() {
+  _exit_1 printf "Not yet implemented.\\n"
+}
+
+# Usage:
+#   describe <name> <description>
+#   describe --get <name>
+#
+# Options:
+#   --get  Print the description for <name> if one has been set.
+describe() {
+  _debug printf "describe() \${*}: %s\\n" "$@"
+  [[ -z "${1:-}" ]] && _exit_1 printf "describe(): <name> required.\\n"
+
+  if [[ "${1}" == "--get" ]]
+  then
+    [[ -z "${2:-}" ]] &&
+      _exit_1 printf "describe(): <description> required.\\n"
+
+    local _name="${2:-}"
+    local _describe_var="___describe_${_name}"
+
+    if [[ -n "${!_describe_var:-}" ]]
+    then
+      printf "%s\\n" "${!_describe_var}"
+    else
+      printf "No additional information for \`%s\`\\n" "${_name}"
+    fi
+  else
+    if [[ -n "${2:-}" ]]
+    then
+      read -r -d '' "___describe_${1}" <<HEREDOC
+${2}
+HEREDOC
+    else
+      read -r -d '' "___describe_${1}" || true
+    fi
+  fi
+}
+
+# Iterate over options, breaking -ab into -a -b and --foo=bar into --foo bar
+# also turns -- into --endopts to avoid issues with things like '-o-', the '-'
+# should not indicate the end of options, but be an invalid option (or the
+# argument to the option, such as wget -qO-)
+# Source:
+#   https://github.com/e36freak/templates/blob/master/options
+unset options
+# while the number of arguments is greater than 0
+while ((${#}))
+do
+  case "${1}" in
+    # if option is of type -ab
+    -[!-]?*)
+      # loop over each character starting with the second
+      for ((i=1; i<${#1}; i++))
+      do
+        # extract 1 character from position 'i'
+        c="${1:i:1}"
+        # add current char to options
+        options+=("-${c}")
+      done
+      ;;
+    # if option is of type --foo=bar, split on first '='
+    --?*=*)
+      options+=("${1%%=*}" "${1#*=}")
+      ;;
+    # end of options, stop breaking them up
+    --)
+      options+=(--endopts)
+      shift
+      options+=("${@}")
+      break
+      ;;
+    # otherwise, nothing special
+    *)
+      options+=("${1}")
+      ;;
+  esac
+
+  shift
+done
+# set new positional parameters to altered options. Set default to blank.
+set -- "${options[@]:-}"
+unset options
+
+_SUBCOMMAND=""
+_SUBCOMMAND_ARGUMENTS=()
+_USE_DEBUG=0
+_YES=0
+
+while ((${#}))
+do
+  __opt="${1}"
+  shift
+  case "${__opt}" in
+    -h|--help)
+      _SUBCOMMAND="help"
+      ;;
+    --version)
+      _SUBCOMMAND="version"
+      ;;
+    --debug)
+      _USE_DEBUG=1
+      ;;
+    --yes)
+      _YES=1
+      ;;
+    *)
+      # The first non-option argument is assumed to be the subcommand name.
+      # All subsequent arguments are added to $_SUBCOMMAND_ARGUMENTS.
+      if [[ -n "${_SUBCOMMAND}" ]]
+      then
+        _SUBCOMMAND_ARGUMENTS+=("${__opt}")
+      else
+        _SUBCOMMAND="${__opt}"
+      fi
+      ;;
+  esac
+done
+
+###############################################################################
+# Main
+###############################################################################
+
+_DEFINED_SUBCOMMANDS=()
+_main() {
+  if [[ -z "${_SUBCOMMAND}" ]]
+  then
+    _SUBCOMMAND="${DEFAULT_SUBCOMMAND}"
+  fi
+
+  for __name in $(declare -F)
+  do
+    local _function_name
+    _function_name=$(printf "%s" "${__name}" | awk '{ print $3 }')
+
+    if ! { [[ -z "${_function_name:-}"                      ]] ||
+           [[ "${_function_name}" =~ ^_(.*)                 ]] ||
+           [[ "${_function_name}" == "bats_readlinkf"       ]] ||
+           [[ "${_function_name}" == "describe"             ]] ||
+           [[ "${_function_name}" == "shell_session_update" ]]
+    }
+    then
+      _DEFINED_SUBCOMMANDS+=("${_function_name}")
+    fi
+  done
+
+  # If our _SUBCOMMAND is defined, execute it. Otherwise, attempt to
+  # execute _create_alarm. _create_alarm must check its own args, and
+  # _exit_1 if inappropriate.
+  if _contains "${_SUBCOMMAND}" "${_DEFINED_SUBCOMMANDS[@]:-}"
+  then
+    ${_SUBCOMMAND} "${_SUBCOMMAND_ARGUMENTS[@]:-}"
+  else
+    _create_alarm "${_SUBCOMMAND}" "${_SUBCOMMAND_ARGUMENTS[@]:-}"
+  fi
+}
+
+
+###############################################################################
+# Subcommands
+###############################################################################
+
+# help ########################################################################
+
+describe "help" <<HEREDOC
+Usage:
+  ${_ME} help [<subcommand>]
+
+Description:
+  Display help information for ${_ME} or a specified subcommand.
+HEREDOC
+help() {
+  if [[ -n "${1:-}" ]]
+  then
+    describe --get "${1}"
+  else
+    cat <<HEREDOC
+nag
+
+Version: ${_VERSION}
+
+Usage:
+  ${_ME} <time> <message...>                 one-shot alarm
+  ${_ME} every <rules> <time> <message...>   repeating alarm
+  ${_ME} stop <id>                           delete alarm
+  ${_ME} skip <id>                           skip next occurrence
+  ${_ME} check                               fire expired alarms (cron)
+  ${_ME} help [<subcommand>]                 show help
+  ${_ME}                                     list all alarms
+
+Options:
+  --yes  Skip all prompts.
+
+Help:
+  ${_ME} help [<subcommand>]
+HEREDOC
+  fi
+}
+
+# version #####################################################################
+
+describe "version" <<HEREDOC
+Usage:
+  ${_ME} ( version | --version )
+
+Description:
+  Display the current program version.
+HEREDOC
+version() {
+  printf "%s\\n" "${_VERSION}"
+}
+
+# list ########################################################################
+
+describe "list" <<HEREDOC
+Usage:
+  ${_ME} list
+
+Description:
+  List all alarms. This is the default when no subcommand is given.
+HEREDOC
+list() {
+  if [[ ! -f "${NAG_PATH}" ]] || [[ ! -s "${NAG_PATH}" ]]
+  then
+    printf "Nothing to nag about.\\n"
+    return 0
+  fi
+}
+
+# _main must be called after everything has been defined.
+_main
