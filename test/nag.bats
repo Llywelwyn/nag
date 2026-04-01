@@ -235,7 +235,7 @@ printf "%s\n" "$2" >> "${NAG_DIR}/fired"
 SCRIPT
   chmod +x "${NAG_CMD}"
 
-  run "${_NAG}" check
+  run_nag check
   [ "${status}" -eq 0 ]
 
   # Alarm should have been removed.
@@ -249,7 +249,7 @@ SCRIPT
   local _past_ts=$(( $(date +%s) - 60 ))
   write_alarm "$(printf "1\t%s\tday\tdaily alarm" "${_past_ts}")"
 
-  run "${_NAG}" check
+  run_nag check
   [ "${status}" -eq 0 ]
 
   # Alarm should still exist with a future timestamp.
@@ -265,7 +265,7 @@ SCRIPT
   local _future_ts=$(( $(date +%s) + 3600 ))
   write_alarm "$(printf "1\t%s\t\tfuture alarm" "${_future_ts}")"
 
-  run "${_NAG}" check
+  run_nag check
   [ "${status}" -eq 0 ]
 
   # Alarm should still be there, unchanged.
@@ -287,7 +287,7 @@ printf "%s\n" "$2" >> "${NAG_DIR}/fired"
 SCRIPT
   chmod +x "${NAG_CMD}"
 
-  run "${_NAG}" check
+  run_nag check
   [ "${status}" -eq 0 ]
 
   # Both should have fired.
@@ -299,7 +299,7 @@ SCRIPT
 }
 
 @test "help check shows check usage" {
-  run "${_NAG}" help check
+  run_nag help check
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "Usage:" ]]
   [[ "${output}" =~ "check" ]]

@@ -7,6 +7,7 @@ setup() {
   export NAG_DIR
   NAG_DIR="$(mktemp -d)"
   export NAG_CMD="true"
+  export NAG_SOUND=""
 }
 
 teardown() {

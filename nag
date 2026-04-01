@@ -43,7 +43,7 @@ _LOCKFILE="${NAG_DIR}/alarms.lock"
 NAG_CMD="${NAG_CMD:-notify-send}"
 
 # Sound file to play when an alarm fires. Empty or missing file = no sound.
-NAG_SOUND="${NAG_SOUND:-/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga}"
+NAG_SOUND="${NAG_SOUND-/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga}"
 _MUTED_FILE="${NAG_DIR}/muted"
 
 # The default subcommand if no args are passed.
@@ -381,11 +381,11 @@ _play_sound() {
   [[ -n "${NAG_SOUND}" ]] && [[ -f "${NAG_SOUND}" ]] && [[ ! -f "${_MUTED_FILE}" ]] || return 0
 
   if _command_exists pw-play; then
-    pw-play "${NAG_SOUND}" &
+    pw-play "${NAG_SOUND}"
   elif _command_exists paplay; then
-    paplay "${NAG_SOUND}" &
+    paplay "${NAG_SOUND}"
   elif _command_exists aplay; then
-    aplay "${NAG_SOUND}" &
+    aplay "${NAG_SOUND}"
   fi
 }
 
@@ -883,18 +883,20 @@ _parse_time() {
 }
 
 # Usage:
-#   _prompt_cron
+#   _prompt_timer
 #
 # Description:
-#   Check whether a cron entry for `nag check` exists. If not, prompt the
-#   user to install one (or install automatically when --yes is set).
-_prompt_cron() {
-  if ! _command_exists crontab
+#   Check whether a systemd user timer for `nag check` is active.
+#   If not, prompt the user to install one (or install automatically
+#   when --yes is set). Falls back to cron if systemd is unavailable.
+_prompt_timer() {
+  # Already running?
+  if systemctl --user is-active nag.timer &>/dev/null
   then
-    _warn printf "crontab not found. Without a cron daemon, alarms will not trigger.\\n"
     return 0
   fi
 
+  # Cron fallback: already installed?
   if crontab -l 2>/dev/null | grep -qF "${_ME} check"
   then
     return 0
@@ -902,13 +904,13 @@ _prompt_cron() {
 
   if ((_YES))
   then
-    _install_cron
+    _install_timer
     return 0
   fi
 
   if _interactive_input
   then
-    printf "A cron job for '%s check' is needed to trigger timers. Add one? [Y/n] " "${_ME}"
+    printf "A timer for '%s check' is needed to trigger alarms. Install one? [Y/n] " "${_ME}"
     local _reply
     read -r _reply
     case "${_reply}" in
@@ -916,22 +918,59 @@ _prompt_cron() {
         return 0
         ;;
       *)
-        _install_cron
+        _install_timer
         ;;
     esac
   fi
 }
 
 # Usage:
-#   _install_cron
+#   _install_timer
 #
 # Description:
-#   Append a `* * * * * nag check` entry to the current user's crontab.
-_install_cron() {
+#   Install a systemd user timer that runs `nag check` every 15 seconds.
+#   Falls back to cron if systemctl is unavailable.
+_install_timer() {
   local _nag_path
   _nag_path="$(command -v nag 2>/dev/null || printf "%s" "$(cd "$(dirname "${0}")" && pwd)/nag")"
-  (crontab -l 2>/dev/null; printf "* * * * * %s check\\n" "${_nag_path}") | crontab -
-  printf "cron entry added.\\n"
+
+  if _command_exists systemctl
+  then
+    local _unit_dir="${HOME}/.config/systemd/user"
+    mkdir -p "${_unit_dir}"
+
+    cat > "${_unit_dir}/nag.service" <<UNIT
+[Unit]
+Description=nag alarm check
+
+[Service]
+Type=oneshot
+ExecStart=${_nag_path} check
+UNIT
+
+    cat > "${_unit_dir}/nag.timer" <<UNIT
+[Unit]
+Description=Run nag check every 15 seconds
+
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=15s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
+UNIT
+
+    systemctl --user daemon-reload
+    systemctl --user enable --now nag.timer
+    printf "Systemd timer installed (every 15s).\\n"
+  elif _command_exists crontab
+  then
+    (crontab -l 2>/dev/null; printf "* * * * * %s check\\n" "${_nag_path}") | crontab -
+    printf "Cron entry added (every 60s).\\n"
+  else
+    _warn printf "Neither systemctl nor crontab found. Alarms will not trigger automatically.\\n"
+  fi
 }
 
 ###############################################################################
@@ -1193,7 +1232,7 @@ at() {
   _write_alarms
   _release_lock
 
-  _prompt_cron
+  _prompt_timer
 
   local _human_time
   _human_time="$(_format_time "${_timestamp}")"
@@ -1245,7 +1284,7 @@ every() {
   _write_alarms
   _release_lock
 
-  _prompt_cron
+  _prompt_timer
 
   local _human_time
   _human_time="$(_format_time "${_timestamp}")"
