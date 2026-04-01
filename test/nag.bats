@@ -50,8 +50,7 @@ load test_helper
 @test "at creates a one-shot alarm" {
   run_nag at "tomorrow 3pm" "take a break"
   [ "${status}" -eq 0 ]
-  [[ "${output}" =~ "[1]" ]]
-  [[ "${output}" =~ "take a break" ]]
+  [[ "${output}" =~ "[1] Tomorrow, 3pm — take a break" ]]
   [ -f "${NAG_PATH}" ]
   [ "$(wc -l < "${NAG_PATH}")" -eq 1 ]
   # Verify TSV structure: id<TAB>timestamp<TAB><TAB>message
@@ -87,4 +86,24 @@ load test_helper
   NAG_DEFAULT="version" run_nag
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ ^[0-9]+\.[0-9]+(_[a-zA-Z0-9]+)*$ ]]
+}
+
+@test "list shows formatted alarms with smart dates" {
+  run_nag at "tomorrow 3pm" "take a break"
+  run_nag
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "[1] Tomorrow, 3pm — take a break" ]]
+}
+
+@test "list sorts alarms by time" {
+  run_nag at "tomorrow 3pm" "take a break"
+  run_nag at "tomorrow 9am" "standup"
+  run_nag
+  [ "${status}" -eq 0 ]
+  # 9am should come before 3pm in output.
+  local _first_line _second_line
+  _first_line="$(printf "%s\n" "${output}" | head -1)"
+  _second_line="$(printf "%s\n" "${output}" | sed -n '2p')"
+  [[ "${_first_line}" =~ "standup" ]]
+  [[ "${_second_line}" =~ "take a break" ]]
 }

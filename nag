@@ -503,6 +503,55 @@ _get_alarm_field() {
 }
 
 # Usage:
+#   _format_time <timestamp>
+#
+# Description:
+#   Format a unix timestamp for display.
+#   Time: dots for minutes (3.30pm), omit .00 (3pm).
+#   Date: Today / Tomorrow / day-of-week within 6 days /
+#         Next <day> within 13 days / Mon Dec 25 beyond that.
+_format_time() {
+  local _timestamp="${1}"
+
+  # Format time: drop .00, use dots for minutes.
+  local _hour _minute _ampm _time_fmt
+  _hour="$(date -d "@${_timestamp}" "+%-I")"
+  _minute="$(date -d "@${_timestamp}" "+%M")"
+  _ampm="$(date -d "@${_timestamp}" "+%p" | tr '[:upper:]' '[:lower:]')"
+  if [[ "${_minute}" == "00" ]]
+  then
+    _time_fmt="${_hour}${_ampm}"
+  else
+    _time_fmt="${_hour}.${_minute}${_ampm}"
+  fi
+
+  # Format date prefix.
+  local _alarm_date _today _days_away
+  _alarm_date="$(date -d "@${_timestamp}" +%Y-%m-%d)"
+  _today="$(date +%Y-%m-%d)"
+  _days_away=$(( ( $(date -d "${_alarm_date}" +%s) - $(date -d "${_today}" +%s) ) / 86400 ))
+
+  local _date_prefix
+  if (( _days_away == 0 ))
+  then
+    _date_prefix="Today"
+  elif (( _days_away == 1 ))
+  then
+    _date_prefix="Tomorrow"
+  elif (( _days_away <= 6 ))
+  then
+    _date_prefix="$(date -d "@${_timestamp}" "+%A")"
+  elif (( _days_away <= 13 ))
+  then
+    _date_prefix="Next $(date -d "@${_timestamp}" "+%A")"
+  else
+    _date_prefix="$(date -d "@${_timestamp}" "+%a %b %-d")"
+  fi
+
+  printf "%s, %s" "${_date_prefix}" "${_time_fmt}"
+}
+
+# Usage:
 #   _parse_time <time-string>
 #
 # Description:
@@ -652,6 +701,36 @@ list() {
     printf "Nothing to nag about.\\n"
     return 0
   fi
+
+  _read_alarms
+
+  # Sort alarms by timestamp (field 2).
+  local -a _sorted
+  IFS=$'\n' _sorted=($(printf "%s\n" "${_ALARMS[@]}" | sort -t$'\t' -k2 -n))
+  IFS=$'\n\t'
+
+  local _line
+  for _line in "${_sorted[@]}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _id _timestamp _rule _message _human_time _rule_display
+
+    _id="$(_get_alarm_field "${_line}" 1)"
+    _timestamp="$(_get_alarm_field "${_line}" 2)"
+    _rule="$(_get_alarm_field "${_line}" 3)"
+    _message="$(_get_alarm_field "${_line}" 4)"
+
+    _human_time="$(_format_time "${_timestamp}")"
+
+    if [[ -n "${_rule}" ]]
+    then
+      _rule_display="every ${_rule//,/, }, "
+    else
+      _rule_display=""
+    fi
+
+    printf "[%s] %s%s — %s\\n" "${_id}" "${_rule_display}" "${_human_time}" "${_message}"
+  done
 }
 
 # at ##########################################################################
@@ -693,7 +772,7 @@ at() {
   _prompt_cron
 
   local _human_time
-  _human_time="$(date -d "@${_timestamp}" "+%a %b %-d %-I:%M%p" | sed 's/AM/am/;s/PM/pm/')"
+  _human_time="$(_format_time "${_timestamp}")"
   printf "[%s] %s — %s\\n" "${_id}" "${_human_time}" "${_message}"
 }
 
