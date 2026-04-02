@@ -304,6 +304,9 @@ do
     -h|--help)
       _SUBCOMMAND="help"
       ;;
+    -e|--edit)
+      _SUBCOMMAND="edit"
+      ;;
     --version)
       _SUBCOMMAND="version"
       ;;
@@ -1046,12 +1049,14 @@ Usage:
   ${_ME} stop <id>                           delete alarm
   ${_ME} skip <id>                           skip next occurrence
   ${_ME} check                               check and fire due alarms
+  ${_ME} edit                                edit alarms file directly
   ${_ME} mute                                mute alarm sounds
   ${_ME} unmute                              unmute alarm sounds
   ${_ME} help [<subcommand>]                 show help
   ${_ME} version                             show version
 
 Options:
+  -e, --edit Edit alarms file directly.
   --yes      Skip all prompts.
   --version  Show version.
 
@@ -1472,6 +1477,21 @@ unmute() {
   else
     printf "Sound is not muted.\\n"
   fi
+}
+
+# edit ########################################################################
+
+describe "edit" <<HEREDOC
+Usage:
+  ${_ME} ( edit | -e | --edit )
+
+Description:
+  Open the alarms file in \$EDITOR (falls back to \$VISUAL, then vi).
+HEREDOC
+edit() {
+  _ensure_nag_dir
+  [[ -f "${_ALARMS_FILE}" ]] || : > "${_ALARMS_FILE}"
+  "${EDITOR:-${VISUAL:-vi}}" "${_ALARMS_FILE}"
 }
 
 # _main must be called after everything has been defined.
