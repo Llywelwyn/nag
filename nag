@@ -2033,20 +2033,34 @@ _snooze_by_tag() {
   fi
 
   _ensure_nag_dir
+
+  local _until_ts="" _until_date=""
   if [[ -n "${_duration_str}" ]]
   then
-    local _until_ts
     _until_ts="$(_parse_time "${_duration_str}")"
-    printf "%s\t%s\\n" "${_tag}" "${_until_ts}" >> "${_SNOOZED_FILE}"
-    _release_lock
-    local _until_date
     _until_date="$(date -d "@${_until_ts}" "+%b %-d")"
-    printf "Snoozed [%s] until %s.\\n" "${_tag}" "${_until_date}"
-  else
-    printf "%s\\n" "${_tag}" >> "${_SNOOZED_FILE}"
-    _release_lock
-    printf "Snoozed [%s].\\n" "${_tag}"
   fi
+
+  for _line in "${_ALARMS[@]}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _tags _id _message
+    _tags="$(_get_alarm_field "${_line}" 2)"
+    _alarm_has_tag "${_tags}" "${_tag}" || continue
+    _id="${_line%%$'\t'*}"
+    _message="$(_get_alarm_field "${_line}" 5)"
+    _remove_snoozed_entry "${_id}" 2>/dev/null || true
+    if [[ -n "${_until_ts}" ]]
+    then
+      printf "%s\t%s\\n" "${_id}" "${_until_ts}" >> "${_SNOOZED_FILE}"
+      printf "Snoozed [%s] %s until %s.\\n" "${_id}" "${_message}" "${_until_date}"
+    else
+      printf "%s\\n" "${_id}" >> "${_SNOOZED_FILE}"
+      printf "Snoozed [%s] %s.\\n" "${_id}" "${_message}"
+    fi
+  done
+
+  _release_lock
 }
 
 snooze() {
@@ -2056,22 +2070,43 @@ snooze() {
   if [[ "${_target}" == "all" ]]
   then
     local _duration_str="${2:-}"
-    _ensure_nag_dir
     _acquire_lock
+    _read_alarms
+
+    if (( ${#_ALARMS[@]} == 0 ))
+    then
+      _release_lock
+      _exit_1 printf "No alarms to snooze.\\n"
+    fi
+
+    _ensure_nag_dir
+
+    local _until_ts="" _until_date=""
     if [[ -n "${_duration_str}" ]]
     then
-      local _until_ts
       _until_ts="$(_parse_time "${_duration_str}")"
-      printf "*\t%s\\n" "${_until_ts}" > "${_SNOOZED_FILE}"
-      _release_lock
-      local _until_date
       _until_date="$(date -d "@${_until_ts}" "+%b %-d")"
-      printf "Snoozed all until %s.\\n" "${_until_date}"
-    else
-      printf "*\\n" > "${_SNOOZED_FILE}"
-      _release_lock
-      printf "Snoozed all.\\n"
     fi
+
+    local _line
+    for _line in "${_ALARMS[@]}"
+    do
+      [[ -n "${_line}" ]] || continue
+      local _id _message
+      _id="${_line%%$'\t'*}"
+      _message="$(_get_alarm_field "${_line}" 5)"
+      _remove_snoozed_entry "${_id}" 2>/dev/null || true
+      if [[ -n "${_until_ts}" ]]
+      then
+        printf "%s\t%s\\n" "${_id}" "${_until_ts}" >> "${_SNOOZED_FILE}"
+        printf "Snoozed [%s] %s until %s.\\n" "${_id}" "${_message}" "${_until_date}"
+      else
+        printf "%s\\n" "${_id}" >> "${_SNOOZED_FILE}"
+        printf "Snoozed [%s] %s.\\n" "${_id}" "${_message}"
+      fi
+    done
+
+    _release_lock
     return
   fi
 
@@ -2107,6 +2142,7 @@ snooze() {
 
   local _duration_str="${2:-}"
   _ensure_nag_dir
+  _remove_snoozed_entry "${_target}" 2>/dev/null || true
   if [[ -n "${_duration_str}" ]]
   then
     local _until_ts
@@ -2127,46 +2163,66 @@ _unsnooze_by_tag() {
   local _tag="${1}"
 
   _acquire_lock
-
-  if [[ ! -f "${_SNOOZED_FILE}" ]]
-  then
-    _release_lock
-    _exit_1 printf "Tag [%s] is not snoozed.\\n" "${_tag}"
-  fi
-
-  local _found_in_file=0 _entry
-  while IFS= read -r _entry || [[ -n "${_entry}" ]]
-  do
-    [[ -n "${_entry}" ]] || continue
-    local _key="${_entry%%$'\t'*}"
-    [[ "${_key}" == "${_tag}" ]] && _found_in_file=1 && break
-  done < "${_SNOOZED_FILE}"
-
-  if (( ! _found_in_file ))
-  then
-    _release_lock
-    _exit_1 printf "Tag [%s] is not snoozed.\\n" "${_tag}"
-  fi
-
   _read_alarms
-  local _match_count=0 _line
+
+  # Find alarms with this tag whose IDs are in the snoozed file.
+  local -a _snoozed_ids=()
+  local _line
   for _line in "${_ALARMS[@]:-}"
   do
     [[ -n "${_line}" ]] || continue
     local _tags
     _tags="$(_get_alarm_field "${_line}" 2)"
-    _alarm_has_tag "${_tags}" "${_tag}" && _match_count=$((_match_count + 1))
+    _alarm_has_tag "${_tags}" "${_tag}" || continue
+    local _id="${_line%%$'\t'*}"
+    # Check if this ID is in the snoozed file.
+    if [[ -f "${_SNOOZED_FILE}" ]]
+    then
+      local _entry
+      while IFS= read -r _entry || [[ -n "${_entry}" ]]
+      do
+        [[ -n "${_entry}" ]] || continue
+        local _key="${_entry%%$'\t'*}"
+        if [[ "${_key}" == "${_id}" ]]
+        then
+          _snoozed_ids+=("${_id}")
+          break
+        fi
+      done < "${_SNOOZED_FILE}"
+    fi
   done
 
-  if ! _confirm_action "Unsnooze" "${_match_count}" "${_tag}"
+  if (( ${#_snoozed_ids[@]} == 0 ))
+  then
+    _release_lock
+    _exit_1 printf "[%s] alarms are not snoozed.\\n" "${_tag}"
+  fi
+
+  if ! _confirm_action "Unsnooze" "${#_snoozed_ids[@]}" "${_tag}"
   then
     _release_lock
     return 0
   fi
 
-  _remove_snoozed_entry "${_tag}"
+  local _id
+  for _id in "${_snoozed_ids[@]}"
+  do
+    _remove_snoozed_entry "${_id}"
+    local _message=""
+    for _line in "${_ALARMS[@]:-}"
+    do
+      [[ -n "${_line}" ]] || continue
+      local _aid="${_line%%$'\t'*}"
+      if [[ "${_aid}" == "${_id}" ]]
+      then
+        _message="$(_get_alarm_field "${_line}" 5)"
+        break
+      fi
+    done
+    printf "Unsnoozed [%s] %s.\\n" "${_id}" "${_message}"
+  done
+
   _release_lock
-  printf "Unsnoozed [%s].\\n" "${_tag}"
 }
 
 # unsnooze ###################################################################
