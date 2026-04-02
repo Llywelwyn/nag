@@ -579,9 +579,9 @@ _format_time() {
 #   form to stdout. Input is expected to be lowercase.
 _normalise_rule() {
   case "${1}" in
-    h|hr|hour|hours|hourly)           printf "hourly" ;;
-    d|day|days|daily)                  printf "daily" ;;
-    week|weekly)                       printf "weekly" ;;
+    h|hr|hour|hours|hourly)            printf "hour" ;;
+    d|day|days|daily)                  printf "day" ;;
+    week|weekly)                       printf "week" ;;
     weekday|weekdays)                  printf "weekday" ;;
     weekend|weekends)                  printf "weekend" ;;
     mon|monday|mondays)                printf "mon" ;;
@@ -591,8 +591,8 @@ _normalise_rule() {
     fri|friday|fridays)                printf "fri" ;;
     sat|saturday|saturdays)            printf "sat" ;;
     sun|sunday|sundays)                printf "sun" ;;
-    month|months|monthly)              printf "monthly" ;;
-    year|years|yearly)                 printf "yearly" ;;
+    month|months|monthly)              printf "month" ;;
+    year|years|yearly)                 printf "year" ;;
     *)                                 return 1 ;;
   esac
 }
