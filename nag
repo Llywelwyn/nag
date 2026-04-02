@@ -1968,19 +1968,80 @@ Examples:
   ${_ME} snooze 3 "2 weeks"    snooze alarm 3 for 2 weeks
   ${_ME} snooze all "July 15"  snooze everything until July 15
 HEREDOC
+_snooze_by_tag() {
+  local _tag="${1}" _duration_str="${2:-}"
+
+  _acquire_lock
+  _read_alarms
+
+  local _match_count=0 _line
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _tags
+    _tags="$(_get_alarm_field "${_line}" 2)"
+    _alarm_has_tag "${_tags}" "${_tag}" && _match_count=$((_match_count + 1))
+  done
+
+  if (( _match_count == 0 ))
+  then
+    _release_lock
+    _exit_1 printf "No alarms tagged [%s].\\n" "${_tag}"
+  fi
+
+  if ! _confirm_action "Snooze" "${_match_count}" "${_tag}"
+  then
+    _release_lock
+    return 0
+  fi
+
+  _ensure_nag_dir
+  if [[ -n "${_duration_str}" ]]
+  then
+    local _until_ts
+    _until_ts="$(_parse_time "${_duration_str}")"
+    printf "%s\t%s\\n" "${_tag}" "${_until_ts}" >> "${_SNOOZED_FILE}"
+    _release_lock
+    local _until_date
+    _until_date="$(date -d "@${_until_ts}" "+%b %-d")"
+    printf "Snoozed [%s] until %s.\\n" "${_tag}" "${_until_date}"
+  else
+    printf "%s\\n" "${_tag}" >> "${_SNOOZED_FILE}"
+    _release_lock
+    printf "Snoozed [%s].\\n" "${_tag}"
+  fi
+}
+
 snooze() {
   local _target="${1:-}"
   [[ -n "${_target}" ]] || _exit_1 printf "Usage: %s snooze <all|id|tag> [<duration>]\\n" "${_ME}"
 
-  # "all" and tag: placeholder for Task 5.
   if [[ "${_target}" == "all" ]]
   then
-    _exit_1 printf "Not yet implemented.\\n"
+    local _duration_str="${2:-}"
+    _ensure_nag_dir
+    _acquire_lock
+    if [[ -n "${_duration_str}" ]]
+    then
+      local _until_ts
+      _until_ts="$(_parse_time "${_duration_str}")"
+      printf "*\t%s\\n" "${_until_ts}" > "${_SNOOZED_FILE}"
+      _release_lock
+      local _until_date
+      _until_date="$(date -d "@${_until_ts}" "+%b %-d")"
+      printf "Snoozed all until %s.\\n" "${_until_date}"
+    else
+      printf "*\\n" > "${_SNOOZED_FILE}"
+      _release_lock
+      printf "Snoozed all.\\n"
+    fi
+    return
   fi
 
   if [[ ! "${_target}" =~ ^[0-9]+$ ]]
   then
-    _exit_1 printf "Not yet implemented.\\n"
+    _snooze_by_tag "${_target}" "${2:-}"
+    return
   fi
 
   # Numeric: snooze by ID.
@@ -2007,10 +2068,22 @@ snooze() {
     _exit_1 printf "No alarm with ID %s.\\n" "${_target}"
   fi
 
+  local _duration_str="${2:-}"
   _ensure_nag_dir
-  printf "%s\\n" "${_target}" >> "${_SNOOZED_FILE}"
-  _release_lock
-  printf "Snoozed [%s] %s.\\n" "${_target}" "${_message}"
+  if [[ -n "${_duration_str}" ]]
+  then
+    local _until_ts
+    _until_ts="$(_parse_time "${_duration_str}")"
+    printf "%s\t%s\\n" "${_target}" "${_until_ts}" >> "${_SNOOZED_FILE}"
+    _release_lock
+    local _until_date
+    _until_date="$(date -d "@${_until_ts}" "+%b %-d")"
+    printf "Snoozed [%s] %s until %s.\\n" "${_target}" "${_message}" "${_until_date}"
+  else
+    printf "%s\\n" "${_target}" >> "${_SNOOZED_FILE}"
+    _release_lock
+    printf "Snoozed [%s] %s.\\n" "${_target}" "${_message}"
+  fi
 }
 
 # edit ########################################################################
