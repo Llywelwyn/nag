@@ -304,16 +304,16 @@ do
     -h|--help)
       _SUBCOMMAND="help"
       ;;
-    -e|--edit)
+    -e)
       _SUBCOMMAND="edit"
       ;;
-    --version)
+    -v)
       _SUBCOMMAND="version"
       ;;
     --debug)
       _USE_DEBUG=1
       ;;
-    --yes)
+    -f)
       _YES=1
       ;;
     *)
@@ -511,8 +511,8 @@ _next_id() {
 #
 # Description:
 #   Extract a field from a TSV alarm line.
-#   Fields: 1=id, 2=timestamp, 3=rule, 4=message.
-#   For field 4 (message), returns everything after the 3rd tab.
+#   Fields: 1=id, 2=tags, 3=timestamp, 4=rule, 5=message.
+#   For field 5 (message), returns everything after the 4th tab.
 _get_alarm_field() {
   local _line="${1}"
   local _field="${2}"
@@ -522,7 +522,7 @@ _get_alarm_field() {
   do
     _rest="${_rest#*$'\t'}"
   done
-  if (( _field == 4 ))
+  if (( _field == 5 ))
   then
     printf "%s" "${_rest}"
   else
@@ -938,7 +938,7 @@ _parse_time() {
 # Description:
 #   Check whether a systemd user timer for `nag check` is active.
 #   If not, prompt the user to install one (or install automatically
-#   when --yes is set). Falls back to cron if systemd is unavailable.
+#   when -f is set). Falls back to cron if systemd is unavailable.
 _prompt_timer() {
   # Already running?
   if systemctl --user is-active nag.timer &>/dev/null
@@ -1056,9 +1056,9 @@ Usage:
   ${_ME} version                             show version
 
 Options:
-  -e, --edit Edit alarms file directly.
-  --yes      Skip all prompts.
-  --version  Show version.
+  -e  Edit alarms file directly.
+  -f  Skip all prompts.
+  -v  Show version.
 
 Environment:
   NAG_DIR    Alarm storage directory (default: ~/.local/share/nag)
@@ -1072,7 +1072,7 @@ HEREDOC
 
 describe "version" <<HEREDOC
 Usage:
-  ${_ME} ( version | --version )
+  ${_ME} ( version | -v )
 
 Description:
   Display the current program version.
@@ -1105,9 +1105,9 @@ list() {
     return 0
   fi
 
-  # Sort alarms by timestamp (field 2).
+  # Sort alarms by timestamp (field 3).
   local -a _sorted
-  IFS=$'\n' _sorted=($(printf "%s\n" "${_ALARMS[@]}" | sort -t$'\t' -k2 -n))
+  IFS=$'\n' _sorted=($(printf "%s\n" "${_ALARMS[@]}" | sort -t$'\t' -k3 -n))
   IFS=$'\n\t'
 
   local _today _today_epoch
@@ -1118,9 +1118,10 @@ list() {
   for _line in "${_sorted[@]}"
   do
     [[ -n "${_line}" ]] || continue
-    local _id _timestamp _rule _message _human_time _rule_display
+    local _id _tags _timestamp _rule _message _human_time _rule_display _tag_display
 
     _id="${_line%%$'\t'*}"; local _rest="${_line#*$'\t'}"
+    _tags="${_rest%%$'\t'*}"; _rest="${_rest#*$'\t'}"
     _timestamp="${_rest%%$'\t'*}"; _rest="${_rest#*$'\t'}"
     _rule="${_rest%%$'\t'*}"
     _message="${_rest#*$'\t'}"
@@ -1135,7 +1136,14 @@ list() {
       _rule_display=""
     fi
 
-    printf "[%s] %s%s — %s\\n" "${_id}" "${_human_time}" "${_rule_display}" "${_message}"
+    if [[ -n "${_tags}" ]]
+    then
+      _tag_display=" [${_tags//,/, }]"
+    else
+      _tag_display=""
+    fi
+
+    printf "[%s]%s %s%s — %s\\n" "${_id}" "${_tag_display}" "${_human_time}" "${_rule_display}" "${_message}"
   done
 }
 
@@ -1215,11 +1223,12 @@ skip() {
   for _line in "${_ALARMS[@]:-}"
   do
     [[ -n "${_line}" ]] || continue
-    local _id _timestamp _rule _message
+    local _id _tags _timestamp _rule _message
     _id="$(_get_alarm_field "${_line}" 1)"
-    _timestamp="$(_get_alarm_field "${_line}" 2)"
-    _rule="$(_get_alarm_field "${_line}" 3)"
-    _message="$(_get_alarm_field "${_line}" 4)"
+    _tags="$(_get_alarm_field "${_line}" 2)"
+    _timestamp="$(_get_alarm_field "${_line}" 3)"
+    _rule="$(_get_alarm_field "${_line}" 4)"
+    _message="$(_get_alarm_field "${_line}" 5)"
 
     if [[ "${_id}" == "${_target_id}" ]]
     then
@@ -1228,7 +1237,7 @@ skip() {
       then
         local _next_ts _human_time
         _next_ts="$(_next_occurrence "${_rule}" "${_timestamp}")"
-        _new_alarms+=("$(printf "%s\t%s\t%s\t%s" "${_id}" "${_next_ts}" "${_rule}" "${_message}")")
+        _new_alarms+=("$(printf "%s\t%s\t%s\t%s\t%s" "${_id}" "${_tags}" "${_next_ts}" "${_rule}" "${_message}")")
         _format_time "${_next_ts}"
         _human_time="${REPLY}"
         printf "Skipped. Next: %s\\n" "${_human_time}"
@@ -1284,11 +1293,12 @@ check() {
   do
     [[ -n "${_line}" ]] || continue
 
-    local _id _timestamp _rule _message
+    local _id _tags _timestamp _rule _message
     _id="$(_get_alarm_field "${_line}" 1)"
-    _timestamp="$(_get_alarm_field "${_line}" 2)"
-    _rule="$(_get_alarm_field "${_line}" 3)"
-    _message="$(_get_alarm_field "${_line}" 4)"
+    _tags="$(_get_alarm_field "${_line}" 2)"
+    _timestamp="$(_get_alarm_field "${_line}" 3)"
+    _rule="$(_get_alarm_field "${_line}" 4)"
+    _message="$(_get_alarm_field "${_line}" 5)"
 
     if (( _timestamp <= _now ))
     then
@@ -1317,7 +1327,7 @@ check() {
         # Repeating: reschedule.
         local _next_ts
         _next_ts="$(_next_occurrence "${_rule}" "${_timestamp}")"
-        _new_alarms+=("$(printf "%s\t%s\t%s\t%s" "${_id}" "${_next_ts}" "${_rule}" "${_message}")")
+        _new_alarms+=("$(printf "%s\t%s\t%s\t%s\t%s" "${_id}" "${_tags}" "${_next_ts}" "${_rule}" "${_message}")")
       fi
       # One-shot: drop it (don't add to _new_alarms).
     else
@@ -1371,7 +1381,7 @@ at() {
 
   # _next_id calls _read_alarms in a subshell, so _ALARMS isn't populated here.
   _read_alarms
-  _ALARMS+=("$(printf "%s\t%s\t\t%s" "${_id}" "${_timestamp}" "${_message}")")
+  _ALARMS+=("$(printf "%s\t\t%s\t\t%s" "${_id}" "${_timestamp}" "${_message}")")
   _write_alarms
   _release_lock
 
@@ -1433,7 +1443,7 @@ every() {
 
   # _next_id calls _read_alarms in a subshell, so _ALARMS isn't populated here.
   _read_alarms
-  _ALARMS+=("$(printf "%s\t%s\t%s\t%s" "${_id}" "${_timestamp}" "${_rules_str}" "${_message}")")
+  _ALARMS+=("$(printf "%s\t\t%s\t%s\t%s" "${_id}" "${_timestamp}" "${_rules_str}" "${_message}")")
   _write_alarms
   _release_lock
 
@@ -1483,7 +1493,7 @@ unmute() {
 
 describe "edit" <<HEREDOC
 Usage:
-  ${_ME} ( edit | -e | --edit )
+  ${_ME} ( edit | -e )
 
 Description:
   Open the alarms file in \$EDITOR (falls back to \$VISUAL, then vi).

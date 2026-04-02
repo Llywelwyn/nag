@@ -8,10 +8,10 @@ load test_helper
   [[ "${output}" =~ "[1] Tomorrow, 3pm — take a break" ]]
   [ -f "${NAG_DIR}/alarms" ]
   [ "$(wc -l < "${NAG_DIR}/alarms")" -eq 1 ]
-  # Verify TSV structure: id<TAB>timestamp<TAB><TAB>message
+  # Verify TSV structure: id<TAB><empty-tags><TAB>timestamp<TAB><empty-rule><TAB>message
   local _line
   _line="$(cat "${NAG_DIR}/alarms")"
-  [[ "${_line}" =~ ^1$'\t'[0-9]+$'\t'$'\t'take\ a\ break$ ]]
+  [[ "${_line}" =~ ^1$'\t'$'\t'[0-9]+$'\t'$'\t'take\ a\ break$ ]]
 }
 
 @test "at is the implicit subcommand" {
@@ -68,11 +68,25 @@ load test_helper
   run_nag at "${_last_month}" "annual thing"
   [ "${status}" -eq 0 ]
   local _ts
-  _ts="$(cut -f2 "${NAG_DIR}/alarms")"
+  _ts="$(cut -f3 "${NAG_DIR}/alarms")"
   local _ts_year _next_year
   _ts_year="$(date -d "@${_ts}" +%Y)"
   _next_year="$(date -d "+1 year" +%Y)"
   [ "${_ts_year}" = "${_next_year}" ]
+}
+
+@test "-f flag suppresses prompts" {
+  run "${_NAG}" -f at "tomorrow 3pm" "flagged alarm"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "flagged alarm" ]]
+}
+
+@test "at creates alarm with 5-field TSV (empty tags)" {
+  run_nag at "tomorrow 3pm" "tagged test"
+  [ "${status}" -eq 0 ]
+  local _line
+  _line="$(cat "${NAG_DIR}/alarms")"
+  [[ "${_line}" =~ ^1$'\t'$'\t'[0-9]+$'\t'$'\t'tagged\ test$ ]]
 }
 
 @test "at without message fails" {

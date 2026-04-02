@@ -32,7 +32,7 @@ load test_helper
   run_nag help version
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "Usage:" ]]
-  [[ "${output}" =~ "( version | --version )" ]]
+  [[ "${output}" =~ "( version | -v )" ]]
 }
 
 @test "help stop shows stop usage" {

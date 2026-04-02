@@ -9,7 +9,7 @@ load test_helper
   [[ "${output}" =~ "Skipped" ]]
   [ -s "${NAG_DIR}/alarms" ]
   local _ts _now
-  _ts="$(cut -f2 "${NAG_DIR}/alarms")"
+  _ts="$(cut -f3 "${NAG_DIR}/alarms")"
   _now="$(date +%s)"
   (( _ts > _now ))
 }

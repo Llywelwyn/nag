@@ -4,7 +4,7 @@ load test_helper
 
 @test "check fires expired one-shot and removes it" {
   local _past_ts=$(( $(date +%s) - 60 ))
-  write_alarm "$(printf "1\t%s\t\tpast alarm" "${_past_ts}")"
+  write_alarm "$(printf "1\t\t%s\t\tpast alarm" "${_past_ts}")"
 
   # Record what was fired.
   local _fired="${NAG_DIR}/fired"
@@ -27,7 +27,7 @@ SCRIPT
 
 @test "check reschedules expired repeating alarm" {
   local _past_ts=$(( $(date +%s) - 60 ))
-  write_alarm "$(printf "1\t%s\tday\tdaily alarm" "${_past_ts}")"
+  write_alarm "$(printf "1\t\t%s\tday\tdaily alarm" "${_past_ts}")"
 
   run_nag check
   [ "${status}" -eq 0 ]
@@ -35,7 +35,7 @@ SCRIPT
   # Alarm should still exist with a future timestamp.
   [ -s "${NAG_DIR}/alarms" ]
   local _new_ts
-  _new_ts="$(cut -f2 "${NAG_DIR}/alarms" | head -1)"
+  _new_ts="$(cut -f3 "${NAG_DIR}/alarms" | head -1)"
   local _now
   _now="$(date +%s)"
   (( _new_ts > _now ))
@@ -43,7 +43,7 @@ SCRIPT
 
 @test "check does not fire future alarms" {
   local _future_ts=$(( $(date +%s) + 3600 ))
-  write_alarm "$(printf "1\t%s\t\tfuture alarm" "${_future_ts}")"
+  write_alarm "$(printf "1\t\t%s\t\tfuture alarm" "${_future_ts}")"
 
   run_nag check
   [ "${status}" -eq 0 ]
@@ -56,8 +56,8 @@ SCRIPT
 @test "check fires all missed alarms" {
   local _past1=$(( $(date +%s) - 120 ))
   local _past2=$(( $(date +%s) - 60 ))
-  write_alarm "$(printf "1\t%s\t\tmissed one" "${_past1}")"
-  write_alarm "$(printf "2\t%s\t\tmissed two" "${_past2}")"
+  write_alarm "$(printf "1\t\t%s\t\tmissed one" "${_past1}")"
+  write_alarm "$(printf "2\t\t%s\t\tmissed two" "${_past2}")"
 
   local _fired="${NAG_DIR}/fired"
   export NAG_CMD="${NAG_DIR}/recorder"
@@ -80,7 +80,7 @@ SCRIPT
 
 @test "check silently drops stale one-shot (older than 15 min)" {
   local _stale_ts=$(( $(date +%s) - 1800 ))  # 30 minutes ago
-  write_alarm "$(printf "1\t%s\t\tstale alarm" "${_stale_ts}")"
+  write_alarm "$(printf "1\t\t%s\t\tstale alarm" "${_stale_ts}")"
 
   local _fired="${NAG_DIR}/fired"
   export NAG_CMD="${NAG_DIR}/recorder"
@@ -102,7 +102,7 @@ SCRIPT
 
 @test "check silently reschedules stale repeating alarm" {
   local _stale_ts=$(( $(date +%s) - 1800 ))  # 30 minutes ago
-  write_alarm "$(printf "1\t%s\tday\tstale repeater" "${_stale_ts}")"
+  write_alarm "$(printf "1\t\t%s\tday\tstale repeater" "${_stale_ts}")"
 
   local _fired="${NAG_DIR}/fired"
   export NAG_CMD="${NAG_DIR}/recorder"
@@ -121,6 +121,6 @@ SCRIPT
   # Should be rescheduled to a future time.
   [ -s "${NAG_DIR}/alarms" ]
   local _new_ts
-  _new_ts="$(cut -f2 "${NAG_DIR}/alarms" | head -1)"
+  _new_ts="$(cut -f3 "${NAG_DIR}/alarms" | head -1)"
   (( _new_ts > $(date +%s) ))
 }

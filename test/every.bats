@@ -10,7 +10,7 @@ load test_helper
   [[ "${output}" =~ "standup meeting" ]]
   # Verify TSV has rule in field 3.
   local _rule
-  _rule="$(cut -f3 "${NAG_DIR}/alarms")"
+  _rule="$(cut -f4 "${NAG_DIR}/alarms")"
   [ "${_rule}" = "weekday" ]
 }
 
@@ -26,7 +26,7 @@ load test_helper
   run_nag every weekend "tomorrow 3pm" relax
   [ "${status}" -eq 0 ]
   local _ts _dow
-  _ts="$(cut -f2 "${NAG_DIR}/alarms")"
+  _ts="$(cut -f3 "${NAG_DIR}/alarms")"
   _dow="$(date -d "@${_ts}" +%u)"
   # Day-of-week should be 6 (Sat) or 7 (Sun).
   [[ "${_dow}" == "6" || "${_dow}" == "7" ]]

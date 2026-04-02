@@ -70,7 +70,7 @@ load test_helper
 
 @test "list shows Today for alarm due today" {
   local _ts=$(( $(date -d "$(date +%Y-%m-%d)" +%s) + 82800 ))
-  write_alarm "$(printf '1\t%s\t\ttoday alarm' "${_ts}")"
+  write_alarm "$(printf '1\t\t%s\t\ttoday alarm' "${_ts}")"
   run_nag
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "Today,".*"today alarm" ]]
@@ -78,7 +78,7 @@ load test_helper
 
 @test "list shows Tomorrow for alarm due tomorrow" {
   local _ts=$(( $(date -d "$(date +%Y-%m-%d)" +%s) + 86400 + 43200 ))
-  write_alarm "$(printf '1\t%s\t\ttomorrow alarm' "${_ts}")"
+  write_alarm "$(printf '1\t\t%s\t\ttomorrow alarm' "${_ts}")"
   run_nag
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "Tomorrow,".*"tomorrow alarm" ]]
@@ -87,7 +87,7 @@ load test_helper
 @test "list shows This <day> for alarm 3 days away" {
   local _ts=$(( $(date -d "$(date +%Y-%m-%d)" +%s) + 86400 * 3 + 43200 ))
   local _day="$(date -d "@${_ts}" +%A)"
-  write_alarm "$(printf '1\t%s\t\tthis alarm' "${_ts}")"
+  write_alarm "$(printf '1\t\t%s\t\tthis alarm' "${_ts}")"
   run_nag
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "This ${_day},".*"this alarm" ]]
@@ -96,7 +96,7 @@ load test_helper
 @test "list shows Next <day> for alarm 10 days away" {
   local _ts=$(( $(date -d "$(date +%Y-%m-%d)" +%s) + 86400 * 10 + 43200 ))
   local _day="$(date -d "@${_ts}" +%A)"
-  write_alarm "$(printf '1\t%s\t\tnext alarm' "${_ts}")"
+  write_alarm "$(printf '1\t\t%s\t\tnext alarm' "${_ts}")"
   run_nag
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "Next ${_day},".*"next alarm" ]]
@@ -105,7 +105,7 @@ load test_helper
 @test "list shows date for alarm 30 days away" {
   local _ts=$(( $(date -d "$(date +%Y-%m-%d)" +%s) + 86400 * 30 + 43200 ))
   local _date="$(date -d "@${_ts}" "+%a %b %-d")"
-  write_alarm "$(printf '1\t%s\t\tfar alarm' "${_ts}")"
+  write_alarm "$(printf '1\t\t%s\t\tfar alarm' "${_ts}")"
   run_nag
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "${_date},".*"far alarm" ]]

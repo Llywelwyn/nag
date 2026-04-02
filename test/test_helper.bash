@@ -15,7 +15,7 @@ teardown() {
 }
 
 run_nag() {
-  run "${_NAG}" --yes "$@"
+  run "${_NAG}" -f "$@"
 }
 
 write_alarm() {
