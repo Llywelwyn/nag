@@ -44,7 +44,7 @@ NAG_CMD="${NAG_CMD:-notify-send}"
 
 # Sound file to play when an alarm fires. Empty or missing file = no sound.
 NAG_SOUND="${NAG_SOUND-/usr/share/sounds/freedesktop/stereo/bell.oga}"
-_MUTED_FILE="${NAG_DIR}/muted"
+_MUTE_FILE="${NAG_DIR}/mute"
 
 # The default subcommand if no args are passed.
 NAG_DEFAULT="${NAG_DEFAULT:-list}"
@@ -375,12 +375,14 @@ _main() {
 _ALARMS=()
 
 # Usage:
-#   _play_sound
+#   _play_sound [<tags>]
 #
 # Description:
 #   Play the alarm sound if NAG_SOUND exists and not muted.
 _play_sound() {
-  [[ -n "${NAG_SOUND}" ]] && [[ -f "${NAG_SOUND}" ]] && [[ ! -f "${_MUTED_FILE}" ]] || return 0
+  local _tags="${1:-}"
+  [[ -n "${NAG_SOUND}" ]] && [[ -f "${NAG_SOUND}" ]] || return 0
+  _is_muted "${_tags}" && return 0
 
   if _command_exists pw-play; then
     pw-play "${NAG_SOUND}"
@@ -548,6 +550,67 @@ _alarm_has_tag() {
   do
     [[ "${_t}" == "${_tag}" ]] && return 0
   done
+  return 1
+}
+
+# Usage:
+#   _is_muted <tags_field>
+#
+# Description:
+#   Check whether an alarm should be muted based on the mute file entries.
+#   Entries: "*" (global mute), "tag" (mute that tag), "!tag" (unmute that tag).
+#   Explicit unmute (!tag) beats global mute (*); tag mute beats default.
+#
+# Exit / Error Status:
+#   0 (success, true)  If the alarm is muted.
+#   1 (error,  false)  If the alarm is not muted.
+_is_muted() {
+  local _tags_field="${1:-}"
+  [[ -f "${_MUTE_FILE}" ]] || return 1
+
+  local -a _mute_entries=()
+  local _entry
+  while IFS= read -r _entry || [[ -n "${_entry}" ]]
+  do
+    [[ -n "${_entry}" ]] && _mute_entries+=("${_entry}")
+  done < "${_MUTE_FILE}"
+
+  (( ${#_mute_entries[@]} > 0 )) || return 1
+
+  if [[ -n "${_tags_field}" ]]
+  then
+    local IFS=","
+    local _tag
+    for _tag in ${_tags_field}
+    do
+      local _e
+      for _e in "${_mute_entries[@]}"
+      do
+        [[ "${_e}" == "!${_tag}" ]] && return 1
+      done
+    done
+  fi
+
+  if [[ -n "${_tags_field}" ]]
+  then
+    local IFS=","
+    local _tag
+    for _tag in ${_tags_field}
+    do
+      local _e
+      for _e in "${_mute_entries[@]}"
+      do
+        [[ "${_e}" == "${_tag}" ]] && return 0
+      done
+    done
+  fi
+
+  local _e
+  for _e in "${_mute_entries[@]}"
+  do
+    [[ "${_e}" == "*" ]] && return 0
+  done
+
   return 1
 }
 
@@ -1405,7 +1468,7 @@ check() {
       if (( _should_fire ))
       then
         ${NAG_CMD} "nag" "${_message}" || _warn printf "Failed to notify: %s\\n" "${_message}"
-        _play_sound
+        _play_sound "${_tags}"
       fi
 
       if [[ -n "${_rule}" ]]
@@ -1545,33 +1608,66 @@ every() {
 
 describe "mute" <<HEREDOC
 Usage:
-  ${_ME} mute
+  ${_ME} mute [<tag>]
 
 Description:
-  Mute alarm sounds. Notifications still fire, but no sound is played.
+  Mute alarm sounds. With no argument, mutes all alarms globally.
+  With a tag, mutes only alarms with that tag.
 HEREDOC
 mute() {
   _ensure_nag_dir
-  : > "${_MUTED_FILE}"
-  printf "Sound muted.\\n"
+  local _tag="${1:-}"
+
+  if [[ -z "${_tag}" ]]
+  then
+    printf "*\\n" > "${_MUTE_FILE}"
+    printf "Muted all.\\n"
+  else
+    if [[ -f "${_MUTE_FILE}" ]] && grep -Fxq '*' "${_MUTE_FILE}"
+    then
+      printf "Muted [%s].\\n" "${_tag}"
+      return 0
+    fi
+    if ! [[ -f "${_MUTE_FILE}" ]] || ! grep -Fxq "${_tag}" "${_MUTE_FILE}"
+    then
+      printf "%s\\n" "${_tag}" >> "${_MUTE_FILE}"
+    fi
+    printf "Muted [%s].\\n" "${_tag}"
+  fi
 }
 
 # unmute ######################################################################
 
 describe "unmute" <<HEREDOC
 Usage:
-  ${_ME} unmute
+  ${_ME} unmute [<tag>]
 
 Description:
-  Unmute alarm sounds.
+  Unmute alarm sounds. With no argument, unmutes everything.
+  With a tag, unmutes only that tag.
 HEREDOC
 unmute() {
-  if [[ -f "${_MUTED_FILE}" ]]
+  local _tag="${1:-}"
+
+  if [[ -z "${_tag}" ]]
   then
-    rm -f "${_MUTED_FILE}"
-    printf "Sound unmuted.\\n"
+    if [[ -f "${_MUTE_FILE}" ]]
+    then
+      rm -f "${_MUTE_FILE}"
+      printf "Unmuted all.\\n"
+    else
+      printf "Sound is not muted.\\n"
+    fi
   else
-    printf "Sound is not muted.\\n"
+    _ensure_nag_dir
+    if [[ -f "${_MUTE_FILE}" ]] && grep -Fxq "${_tag}" "${_MUTE_FILE}"
+    then
+      { grep -Fxv "${_tag}" "${_MUTE_FILE}" || true; } > "${_MUTE_FILE}.tmp"
+      mv -f "${_MUTE_FILE}.tmp" "${_MUTE_FILE}"
+    else
+      printf "!%s\\n" "${_tag}" >> "${_MUTE_FILE}"
+    fi
+    printf "Unmuted [%s].\\n" "${_tag}"
   fi
 }
 
