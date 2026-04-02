@@ -531,6 +531,89 @@ _get_alarm_field() {
 }
 
 # Usage:
+#   _alarm_has_tag <tags_field> <tag>
+#
+# Description:
+#   Check whether a comma-separated tags field contains a specific tag.
+#
+# Exit / Error Status:
+#   0 (success, true)  If the tag is present.
+#   1 (error,  false)  If the tag is absent or the field is empty.
+_alarm_has_tag() {
+  local _tags_field="${1}" _tag="${2}"
+  [[ -n "${_tags_field}" ]] || return 1
+  local IFS=","
+  local _t
+  for _t in ${_tags_field}
+  do
+    [[ "${_t}" == "${_tag}" ]] && return 0
+  done
+  return 1
+}
+
+# Usage:
+#   _tag_list <tag>
+#
+# Description:
+#   List all alarms that carry the given tag, sorted by timestamp.
+_tag_list() {
+  local _filter_tag="${1}"
+
+  if [[ ! -f "${_ALARMS_FILE}" ]] || [[ ! -s "${_ALARMS_FILE}" ]]
+  then
+    printf "No alarms tagged [%s].\\n" "${_filter_tag}"
+    return 0
+  fi
+
+  _read_alarms
+
+  local -a _sorted
+  IFS=$'\n' _sorted=($(printf "%s\n" "${_ALARMS[@]}" | sort -t$'\t' -k3 -n))
+  IFS=$'\n\t'
+
+  local _today _today_epoch
+  _today="$(date +%Y-%m-%d)"
+  _today_epoch="$(date -d "${_today}" +%s)"
+
+  local _matched=0
+  local _line
+  for _line in "${_sorted[@]}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _id _tags _timestamp _rule _message
+
+    _id="${_line%%$'\t'*}"; local _rest="${_line#*$'\t'}"
+    _tags="${_rest%%$'\t'*}"; _rest="${_rest#*$'\t'}"
+    _timestamp="${_rest%%$'\t'*}"; _rest="${_rest#*$'\t'}"
+    _rule="${_rest%%$'\t'*}"
+    _message="${_rest#*$'\t'}"
+
+    _alarm_has_tag "${_tags}" "${_filter_tag}" || continue
+    _matched=1
+
+    local _human_time _rule_display _tag_display
+    _format_time "${_timestamp}" "${_today_epoch}"
+    _human_time="${REPLY}"
+
+    if [[ -n "${_rule}" ]]
+    then
+      _rule_display=" (${_rule//,/, })"
+    else
+      _rule_display=""
+    fi
+
+    _tag_display=" [${_tags//,/, }]"
+
+    printf "[%s]%s %s%s — %s\\n" "${_id}" "${_tag_display}" "${_human_time}" "${_rule_display}" "${_message}"
+  done
+
+  if (( ! _matched ))
+  then
+    printf "No alarms tagged [%s].\\n" "${_filter_tag}"
+  fi
+}
+
+# Usage:
 #   _format_time <timestamp> [today_epoch]
 #
 # Description:
@@ -1502,6 +1585,97 @@ edit() {
   _ensure_nag_dir
   [[ -f "${_ALARMS_FILE}" ]] || : > "${_ALARMS_FILE}"
   "${EDITOR:-${VISUAL:-vi}}" "${_ALARMS_FILE}"
+}
+
+# tag #########################################################################
+
+describe "tag" <<HEREDOC
+Usage:
+  ${_ME} tag <id> <tags...>    add tags to an alarm
+  ${_ME} tag <tag>             list alarms with a tag
+
+Description:
+  Add tags to an alarm by ID, or list all alarms matching a tag.
+  Tags must not be pure integers.
+HEREDOC
+tag() {
+  local _first="${1:-}"
+  [[ -n "${_first}" ]] || _exit_1 printf "Usage: %s tag <id> <tags...> or %s tag <tag>\\n" "${_ME}" "${_ME}"
+
+  if [[ ! "${_first}" =~ ^[0-9]+$ ]]
+  then
+    _tag_list "${_first}"
+    return
+  fi
+
+  local _target_id="${_first}"
+  shift
+  [[ -n "${1:-}" ]] || _exit_1 printf "Usage: %s tag <id> <tags...>\\n" "${_ME}"
+
+  local _tag
+  for _tag in "$@"
+  do
+    if [[ "${_tag}" =~ ^[0-9]+$ ]]
+    then
+      _exit_1 printf "Tag cannot be a number: %s\\n" "${_tag}"
+    fi
+  done
+
+  _acquire_lock
+  _read_alarms
+
+  local -a _new_alarms=()
+  local _found=0
+  local _result_tags=""
+  local _line
+
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _id _existing_tags _timestamp _rule _message
+    _id="${_line%%$'\t'*}"; local _rest="${_line#*$'\t'}"
+    if [[ "${_id}" == "${_target_id}" ]]
+    then
+      _found=1
+      _existing_tags="${_rest%%$'\t'*}"; _rest="${_rest#*$'\t'}"
+      _timestamp="${_rest%%$'\t'*}"; _rest="${_rest#*$'\t'}"
+      _rule="${_rest%%$'\t'*}"
+      _message="${_rest#*$'\t'}"
+
+      local -a _tag_arr=()
+      if [[ -n "${_existing_tags}" ]]
+      then
+        IFS=',' read -r -a _tag_arr <<< "${_existing_tags}"
+      fi
+
+      for _tag in "$@"
+      do
+        local _already=0 _t
+        for _t in "${_tag_arr[@]:-}"
+        do
+          [[ "${_t}" == "${_tag}" ]] && _already=1 && break
+        done
+        (( _already )) || _tag_arr+=("${_tag}")
+      done
+
+      _result_tags="$(_join "," "${_tag_arr[@]}")"
+      _new_alarms+=("$(printf "%s\t%s\t%s\t%s\t%s" "${_id}" "${_result_tags}" "${_timestamp}" "${_rule}" "${_message}")")
+    else
+      _new_alarms+=("${_line}")
+    fi
+  done
+
+  if (( ! _found ))
+  then
+    _release_lock
+    _exit_1 printf "No alarm with ID %s.\\n" "${_target_id}"
+  fi
+
+  _ALARMS=("${_new_alarms[@]}")
+  _write_alarms
+  _release_lock
+
+  printf "Tagged [%s] %s.\\n" "${_target_id}" "${_result_tags//,/, }"
 }
 
 # _main must be called after everything has been defined.
