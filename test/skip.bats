@@ -36,9 +36,9 @@ load test_helper
 @test "skip by tag requires -f" {
   run_nag every day "tomorrow 3pm" "daily work"
   run_nag tag 1 work
-  run "${_NAG}" skip work
+  run "${_NAG}" skip work < /dev/null
   [ "${status}" -eq 0 ]
-  [[ "${output}" =~ "Would skip" ]]
+  [[ "${output}" =~ "Skip" ]]
   [[ "${output}" =~ "-f" ]]
 }
 

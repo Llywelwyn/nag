@@ -36,9 +36,9 @@ load test_helper
 @test "stop by tag requires -f" {
   run_nag at "tomorrow 3pm" "tagged alarm"
   run_nag tag 1 work
-  run "${_NAG}" stop work
+  run "${_NAG}" stop work < /dev/null
   [ "${status}" -eq 0 ]
-  [[ "${output}" =~ "Would stop" ]]
+  [[ "${output}" =~ "Stop" ]]
   [[ "${output}" =~ "-f" ]]
   [ -s "${NAG_DIR}/alarms" ]
 }

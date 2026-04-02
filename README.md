@@ -133,7 +133,7 @@ Usage:
   nag stop <id|tag>
 
 Description:
-  Stop an alarm by ID, or stop all alarms with a tag (requires -f).
+  Stop an alarm by ID, or stop all alarms with a tag.
 ```
 
 #### `nag skip`
@@ -151,7 +151,7 @@ Usage:
 Description:
   Skip the next occurrence of a repeating alarm (reschedule without firing).
   For one-shot alarms, this deletes them. With a tag, applies to all
-  matching alarms (requires -f).
+  matching alarms.
 ```
 
 #### `nag tag`
