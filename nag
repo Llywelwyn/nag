@@ -211,23 +211,32 @@ _piped_input() {
 }
 
 # Usage:
-#   _confirm_action <verb> <count> <tag>
+#   _confirm_action <verb> <count> [<tag>]
 #
 # Prompts the user for confirmation before performing a bulk action on
-# tagged alarms. Skipped when -f (force/_YES) is set. In non-interactive
-# mode, prints a message asking the caller to pass -f.
+# alarms. When <tag> is provided, the prompt includes the tag name.
+# Skipped when -f (force/_YES) is set. In non-interactive mode, prints
+# a message asking the caller to pass -f.
 #
 # Exit / Error Status:
 #   0 (success, true)  If the action is confirmed.
 #   1 (error,  false)  If the action is denied or non-interactive without -f.
 _confirm_action() {
-  local _verb="${1}" _count="${2}" _tag="${3}"
+  local _verb="${1}" _count="${2}" _tag="${3:-}"
 
   (( _YES )) && return 0
 
+  local _desc
+  if [[ -n "${_tag}" ]]
+  then
+    _desc="${_count} alarm(s) tagged [${_tag}]"
+  else
+    _desc="${_count} alarm(s)"
+  fi
+
   if _interactive_input
   then
-    printf "%s %s alarm(s) tagged [%s]? [y/N] " "${_verb}" "${_count}" "${_tag}"
+    printf "%s %s? [y/N] " "${_verb}" "${_desc}"
     local _reply
     read -r _reply
     case "${_reply}" in
@@ -235,7 +244,7 @@ _confirm_action() {
       *)     return 1 ;;
     esac
   else
-    printf "%s %s alarm(s) tagged [%s]? Pass -f to confirm.\n" "${_verb}" "${_count}" "${_tag}"
+    printf "%s %s? Pass -f to confirm.\\n" "${_verb}" "${_desc}"
     return 1
   fi
 }
@@ -1222,8 +1231,8 @@ Usage:
   ${_ME}                                     list all alarms
   ${_ME} <time> <message...>                 one-shot alarm
   ${_ME} every <rules> <time> <message...>   repeating alarm
-  ${_ME} stop <id|tag>                       delete alarm(s)
-  ${_ME} skip <id|tag>                       skip next occurrence(s)
+  ${_ME} stop <all|id|tag>                   delete alarm(s)
+  ${_ME} skip <all|id|tag>                   skip next occurrence(s)
   ${_ME} tag <id> <tags...>                  add tags to an alarm
   ${_ME} tag <tag>                           list alarms with a tag
   ${_ME} untag <id> <tags...>                remove tags from an alarm
@@ -1330,14 +1339,20 @@ list() {
 
 describe "stop" <<HEREDOC
 Usage:
-  ${_ME} stop <id|tag>
+  ${_ME} stop <all|id|tag>
 
 Description:
-  Stop an alarm by ID, or stop all alarms with a tag.
+  Stop an alarm by ID, or stop all alarms with a tag or "all".
 HEREDOC
 stop() {
   local _target="${1:-}"
-  [[ -n "${_target}" ]] || _exit_1 printf "Usage: %s stop <id|tag>\\n" "${_ME}"
+  [[ -n "${_target}" ]] || _exit_1 printf "Usage: %s stop <all|id|tag>\\n" "${_ME}"
+
+  if [[ "${_target}" == "all" ]]
+  then
+    _stop_all
+    return
+  fi
 
   if [[ ! "${_target}" =~ ^[0-9]+$ ]]
   then
@@ -1413,25 +1428,10 @@ _stop_by_tag() {
     _exit_1 printf "No alarms tagged [%s].\\n" "${_tag}"
   fi
 
-  if (( ! _YES ))
+  if ! _confirm_action "Stop" "${#_matched[@]}" "${_tag}"
   then
-    if _interactive_input
-    then
-      printf "Stop %s alarm(s) tagged [%s]? [y/N] " "${#_matched[@]}" "${_tag}"
-      local _reply
-      read -r _reply
-      case "${_reply}" in
-        [yY]*) ;;
-        *)
-          _release_lock
-          return 0
-          ;;
-      esac
-    else
-      _release_lock
-      printf "Stop %s alarm(s) tagged [%s]? Pass -f to confirm.\\n" "${#_matched[@]}" "${_tag}"
-      return 0
-    fi
+    _release_lock
+    return 0
   fi
 
   if (( ${#_new_alarms[@]} == 0 ))
@@ -1454,20 +1454,57 @@ _stop_by_tag() {
   done
 }
 
+_stop_all() {
+  _acquire_lock
+  _read_alarms
+
+  if (( ${#_ALARMS[@]} == 0 ))
+  then
+    _release_lock
+    _exit_1 printf "No alarms to stop.\\n"
+  fi
+
+  if ! _confirm_action "Stop" "${#_ALARMS[@]}"
+  then
+    _release_lock
+    return 0
+  fi
+
+  local _line
+  for _line in "${_ALARMS[@]}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _id _message
+    _id="${_line%%$'\t'*}"
+    _message="$(_get_alarm_field "${_line}" 5)"
+    printf "Stopped [%s] %s\\n" "${_id}" "${_message}"
+  done
+
+  _ALARMS=()
+  : > "${_ALARMS_FILE}"
+  _release_lock
+}
+
 # skip ########################################################################
 
 describe "skip" <<HEREDOC
 Usage:
-  ${_ME} skip <id|tag>
+  ${_ME} skip <all|id|tag>
 
 Description:
   Skip the next occurrence of a repeating alarm (reschedule without firing).
-  For one-shot alarms, this deletes them. With a tag, applies to all
+  For one-shot alarms, this deletes them. With a tag or "all", applies to all
   matching alarms.
 HEREDOC
 skip() {
   local _target="${1:-}"
-  [[ -n "${_target}" ]] || _exit_1 printf "Usage: %s skip <id|tag>\\n" "${_ME}"
+  [[ -n "${_target}" ]] || _exit_1 printf "Usage: %s skip <all|id|tag>\\n" "${_ME}"
+
+  if [[ "${_target}" == "all" ]]
+  then
+    _skip_all
+    return
+  fi
 
   if [[ ! "${_target}" =~ ^[0-9]+$ ]]
   then
@@ -1555,25 +1592,10 @@ _skip_by_tag() {
     _exit_1 printf "No alarms tagged [%s].\\n" "${_tag}"
   fi
 
-  if (( ! _YES ))
+  if ! _confirm_action "Skip" "${_match_count}" "${_tag}"
   then
-    if _interactive_input
-    then
-      printf "Skip %s alarm(s) tagged [%s]? [y/N] " "${_match_count}" "${_tag}"
-      local _reply
-      read -r _reply
-      case "${_reply}" in
-        [yY]*) ;;
-        *)
-          _release_lock
-          return 0
-          ;;
-      esac
-    else
-      _release_lock
-      printf "Skip %s alarm(s) tagged [%s]? Pass -f to confirm.\\n" "${_match_count}" "${_tag}"
-      return 0
-    fi
+    _release_lock
+    return 0
   fi
 
   for _line in "${_ALARMS[@]:-}"
@@ -1601,6 +1623,59 @@ _skip_by_tag() {
       fi
     else
       _new_alarms+=("${_line}")
+    fi
+  done
+
+  if (( ${#_new_alarms[@]} == 0 ))
+  then
+    _ALARMS=()
+    : > "${_ALARMS_FILE}"
+  else
+    _ALARMS=("${_new_alarms[@]}")
+    _write_alarms
+  fi
+  _release_lock
+}
+
+_skip_all() {
+  _acquire_lock
+  _read_alarms
+
+  if (( ${#_ALARMS[@]} == 0 ))
+  then
+    _release_lock
+    _exit_1 printf "No alarms to skip.\\n"
+  fi
+
+  if ! _confirm_action "Skip" "${#_ALARMS[@]}"
+  then
+    _release_lock
+    return 0
+  fi
+
+  local -a _new_alarms=()
+  local _line
+
+  for _line in "${_ALARMS[@]}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _id _tags _timestamp _rule _message
+    _id="$(_get_alarm_field "${_line}" 1)"
+    _tags="$(_get_alarm_field "${_line}" 2)"
+    _timestamp="$(_get_alarm_field "${_line}" 3)"
+    _rule="$(_get_alarm_field "${_line}" 4)"
+    _message="$(_get_alarm_field "${_line}" 5)"
+
+    if [[ -n "${_rule}" ]]
+    then
+      local _next_ts _human_time
+      _next_ts="$(_next_occurrence "${_rule}" "${_timestamp}")"
+      _new_alarms+=("$(printf "%s\t%s\t%s\t%s\t%s" "${_id}" "${_tags}" "${_next_ts}" "${_rule}" "${_message}")")
+      _format_time "${_next_ts}"
+      _human_time="${REPLY}"
+      printf "Skipped [%s] %s — next: %s\\n" "${_id}" "${_message}" "${_human_time}"
+    else
+      printf "Stopped [%s] %s\\n" "${_id}" "${_message}"
     fi
   done
 

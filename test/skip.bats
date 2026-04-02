@@ -61,3 +61,29 @@ load test_helper
   run "${_NAG}" -f skip work
   [ "${status}" -eq 1 ]
 }
+
+@test "skip all reschedules repeating and deletes one-shots" {
+  run_nag at "tomorrow 3pm" "one-shot"
+  run_nag every day "tomorrow 3pm" "daily task"
+  run "${_NAG}" -f skip all
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "Stopped" ]]
+  [[ "${output}" =~ "Skipped" ]]
+  # One-shot removed, repeating kept.
+  [ -s "${NAG_DIR}/alarms" ]
+  ! grep -q "one-shot" "${NAG_DIR}/alarms"
+  grep -q "daily task" "${NAG_DIR}/alarms"
+}
+
+@test "skip all requires -f" {
+  run_nag at "tomorrow 3pm" "test"
+  run "${_NAG}" skip all < /dev/null
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "Skip" ]]
+  [[ "${output}" =~ "-f" ]]
+}
+
+@test "skip all with no alarms fails" {
+  run "${_NAG}" -f skip all
+  [ "${status}" -eq 1 ]
+}

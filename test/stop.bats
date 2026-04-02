@@ -61,3 +61,27 @@ load test_helper
   run "${_NAG}" -f stop work
   [ "${status}" -eq 1 ]
 }
+
+@test "stop all removes all alarms with confirmation" {
+  run_nag at "tomorrow 3pm" "first"
+  run_nag at "tomorrow 4pm" "second"
+  run "${_NAG}" -f stop all
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "Stopped" ]]
+  run_nag
+  [[ "${output}" =~ "Nothing to nag about" ]]
+}
+
+@test "stop all requires -f" {
+  run_nag at "tomorrow 3pm" "test"
+  run "${_NAG}" stop all < /dev/null
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "Stop" ]]
+  [[ "${output}" =~ "-f" ]]
+  [ -s "${NAG_DIR}/alarms" ]
+}
+
+@test "stop all with no alarms fails" {
+  run "${_NAG}" -f stop all
+  [ "${status}" -eq 1 ]
+}
