@@ -728,6 +728,44 @@ _sweep_expired_snoozes() {
 }
 
 # Usage:
+#   _get_snooze_display <id>
+#
+# Description:
+#   Set REPLY to a display string for the given alarm ID's snooze status.
+#   Returns " (snoozed)" for indefinite snoozes, " (snoozed until <date>)"
+#   for timed snoozes, or "" if the alarm is not snoozed.
+_get_snooze_display() {
+  local _id="${1}"
+  REPLY=""
+  [[ -f "${_SNOOZED_FILE}" ]] || return 0
+
+  local _now _entry
+  _now="$(date +%s)"
+
+  while IFS= read -r _entry || [[ -n "${_entry}" ]]
+  do
+    [[ -n "${_entry}" ]] || continue
+    local _entry_key="${_entry%%$'\t'*}"
+
+    [[ "${_entry_key}" == "${_id}" ]] || continue
+
+    if [[ "${_entry}" == *$'\t'* ]]
+    then
+      local _expiry="${_entry#*$'\t'}"
+      if (( _expiry > _now ))
+      then
+        local _until_date
+        _until_date="$(date -d "@${_expiry}" "+%b %-d")"
+        REPLY=" (snoozed until ${_until_date})"
+      fi
+    else
+      REPLY=" (snoozed)"
+    fi
+    return 0
+  done < "${_SNOOZED_FILE}"
+}
+
+# Usage:
 #   _remove_snoozed_entry <key>
 #
 # Description:
@@ -816,7 +854,11 @@ _tag_list() {
 
     _tag_display=" [${_tags//,/, }]"
 
-    printf "[%s]%s %s%s — %s\\n" "${_id}" "${_tag_display}" "${_human_time}" "${_rule_display}" "${_message}"
+    local _snooze_display
+    _get_snooze_display "${_id}"
+    _snooze_display="${REPLY}"
+
+    printf "[%s]%s %s%s%s — %s\\n" "${_id}" "${_tag_display}" "${_human_time}" "${_rule_display}" "${_snooze_display}" "${_message}"
   done
 
   if (( ! _matched ))
@@ -1443,7 +1485,11 @@ list() {
       _tag_display=""
     fi
 
-    printf "[%s]%s %s%s — %s\\n" "${_id}" "${_tag_display}" "${_human_time}" "${_rule_display}" "${_message}"
+    local _snooze_display
+    _get_snooze_display "${_id}"
+    _snooze_display="${REPLY}"
+
+    printf "[%s]%s %s%s%s — %s\\n" "${_id}" "${_tag_display}" "${_human_time}" "${_rule_display}" "${_snooze_display}" "${_message}"
   done
 }
 

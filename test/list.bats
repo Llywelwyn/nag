@@ -110,3 +110,30 @@ load test_helper
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "${_date},".*"far alarm" ]]
 }
+
+@test "list shows (snoozed) for indefinitely snoozed alarm" {
+  run_nag at "tomorrow 3pm" "take a break"
+  printf "1\\n" > "${NAG_DIR}/snoozed"
+  run_nag
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "(snoozed)" ]]
+  [[ "${output}" =~ "take a break" ]]
+}
+
+@test "list shows (snoozed until DATE) for timed snooze" {
+  run_nag at "tomorrow 3pm" "take a break"
+  local _expiry_ts=$(( $(date +%s) + 86400 * 7 ))
+  printf "1\t%s\\n" "${_expiry_ts}" > "${NAG_DIR}/snoozed"
+  local _expiry_date
+  _expiry_date="$(date -d "@${_expiry_ts}" "+%b %-d")"
+  run_nag
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "snoozed until ${_expiry_date}" ]]
+}
+
+@test "list does not show (snoozed) for unsnoozed alarm" {
+  run_nag at "tomorrow 3pm" "take a break"
+  run_nag
+  [ "${status}" -eq 0 ]
+  [[ ! "${output}" =~ "snoozed" ]]
+}
