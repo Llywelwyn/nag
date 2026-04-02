@@ -339,8 +339,7 @@ _main() {
 
   for __name in $(declare -F)
   do
-    local _function_name
-    _function_name=$(printf "%s" "${__name}" | awk '{ print $3 }')
+    local _function_name="${__name##* }"
 
     if ! { [[ -z "${_function_name:-}"                      ]] ||
            [[ "${_function_name}" =~ ^_(.*)                 ]] ||
@@ -514,30 +513,54 @@ _next_id() {
 _get_alarm_field() {
   local _line="${1}"
   local _field="${2}"
+  local _rest="${_line}"
+  local _i
+  for (( _i = 1; _i < _field; _i++ ))
+  do
+    _rest="${_rest#*$'\t'}"
+  done
   if (( _field == 4 ))
   then
-    printf "%s" "${_line}" | cut -f4-
+    printf "%s" "${_rest}"
   else
-    printf "%s" "${_line}" | cut -f"${_field}"
+    printf "%s" "${_rest%%$'\t'*}"
   fi
 }
 
 # Usage:
-#   _format_time <timestamp>
+#   _format_time <timestamp> [today_epoch]
 #
 # Description:
-#   Format a unix timestamp for display.
+#   Format a unix timestamp for display. Sets REPLY to the result.
 #   Time: dots for minutes (3.30pm), omit .00 (3pm).
 #   Date: Today / Tomorrow / day-of-week within 6 days /
 #         Next <day> within 13 days / Mon Dec 25 beyond that.
+#   Optional today_epoch arg skips recomputing the current date.
 _format_time() {
   local _timestamp="${1}"
 
+  # Single date call to get all needed components.
+  local _date_parts
+  _date_parts="$(date -d "@${_timestamp}" "+%-I|%M|%p|%Y-%m-%d|%A|%a %b %-d")"
+
+  local _saved_ifs="${IFS}"
+  IFS='|'
+  local -a _parts
+  read -r -a _parts <<< "${_date_parts}"
+  IFS="${_saved_ifs}"
+
+  local _hour="${_parts[0]}"
+  local _minute="${_parts[1]}"
+  local _ampm="${_parts[2],,}"
+  local _alarm_date="${_parts[3]}"
+  local _day_name="${_parts[4]}"
+  local _short_date="${_parts[5]}"
+
+  local _alarm_midnight
+  _alarm_midnight="$(date -d "${_alarm_date}" "+%s")"
+
   # Format time: drop .00, use dots for minutes.
-  local _hour _minute _ampm _time_fmt
-  _hour="$(date -d "@${_timestamp}" "+%-I")"
-  _minute="$(date -d "@${_timestamp}" "+%M")"
-  _ampm="$(date -d "@${_timestamp}" "+%p" | tr '[:upper:]' '[:lower:]')"
+  local _time_fmt
   if [[ "${_minute}" == "00" ]]
   then
     _time_fmt="${_hour}${_ampm}"
@@ -545,11 +568,17 @@ _format_time() {
     _time_fmt="${_hour}.${_minute}${_ampm}"
   fi
 
-  # Format date prefix.
-  local _alarm_date _today _days_away
-  _alarm_date="$(date -d "@${_timestamp}" +%Y-%m-%d)"
-  _today="$(date +%Y-%m-%d)"
-  _days_away=$(( ( $(date -d "${_alarm_date}" +%s) - $(date -d "${_today}" +%s) ) / 86400 ))
+  # Format date prefix (midnight-to-midnight comparison).
+  local _today_epoch _days_away
+  if [[ -n "${2:-}" ]]
+  then
+    _today_epoch="${2}"
+  else
+    local _today
+    _today="$(date +%Y-%m-%d)"
+    _today_epoch="$(date -d "${_today}" +%s)"
+  fi
+  _days_away=$(( (_alarm_midnight - _today_epoch) / 86400 ))
 
   local _date_prefix
   if (( _days_away == 0 ))
@@ -560,15 +589,15 @@ _format_time() {
     _date_prefix="Tomorrow"
   elif (( _days_away <= 6 ))
   then
-    _date_prefix="This $(date -d "@${_timestamp}" "+%A")"
+    _date_prefix="This ${_day_name}"
   elif (( _days_away <= 13 ))
   then
-    _date_prefix="Next $(date -d "@${_timestamp}" "+%A")"
+    _date_prefix="Next ${_day_name}"
   else
-    _date_prefix="$(date -d "@${_timestamp}" "+%a %b %-d")"
+    _date_prefix="${_short_date}"
   fi
 
-  printf "%s, %s" "${_date_prefix}" "${_time_fmt}"
+  REPLY="${_date_prefix}, ${_time_fmt}"
 }
 
 # Usage:
@@ -1076,18 +1105,23 @@ list() {
   IFS=$'\n' _sorted=($(printf "%s\n" "${_ALARMS[@]}" | sort -t$'\t' -k2 -n))
   IFS=$'\n\t'
 
+  local _today _today_epoch
+  _today="$(date +%Y-%m-%d)"
+  _today_epoch="$(date -d "${_today}" +%s)"
+
   local _line
   for _line in "${_sorted[@]}"
   do
     [[ -n "${_line}" ]] || continue
     local _id _timestamp _rule _message _human_time _rule_display
 
-    _id="$(_get_alarm_field "${_line}" 1)"
-    _timestamp="$(_get_alarm_field "${_line}" 2)"
-    _rule="$(_get_alarm_field "${_line}" 3)"
-    _message="$(_get_alarm_field "${_line}" 4)"
+    _id="${_line%%$'\t'*}"; local _rest="${_line#*$'\t'}"
+    _timestamp="${_rest%%$'\t'*}"; _rest="${_rest#*$'\t'}"
+    _rule="${_rest%%$'\t'*}"
+    _message="${_rest#*$'\t'}"
 
-    _human_time="$(_format_time "${_timestamp}")"
+    _format_time "${_timestamp}" "${_today_epoch}"
+    _human_time="${REPLY}"
 
     if [[ -n "${_rule}" ]]
     then
@@ -1190,7 +1224,8 @@ skip() {
         local _next_ts _human_time
         _next_ts="$(_next_occurrence "${_rule}" "${_timestamp}")"
         _new_alarms+=("$(printf "%s\t%s\t%s\t%s" "${_id}" "${_next_ts}" "${_rule}" "${_message}")")
-        _human_time="$(_format_time "${_next_ts}")"
+        _format_time "${_next_ts}"
+        _human_time="${REPLY}"
         printf "Skipped. Next: %s\\n" "${_human_time}"
       else
         printf "Stopped alarm %s.\\n" "${_id}"
@@ -1338,7 +1373,8 @@ at() {
   _prompt_timer
 
   local _human_time
-  _human_time="$(_format_time "${_timestamp}")"
+  _format_time "${_timestamp}"
+  _human_time="${REPLY}"
   printf "[%s] %s — %s\\n" "${_id}" "${_human_time}" "${_message}"
 }
 
@@ -1399,7 +1435,8 @@ every() {
   _prompt_timer
 
   local _human_time
-  _human_time="$(_format_time "${_timestamp}")"
+  _format_time "${_timestamp}"
+  _human_time="${REPLY}"
   printf "[%s] %s (%s) — %s\\n" "${_id}" "${_human_time}" "${_rules_str//,/, }" "${_message}"
 }
 
