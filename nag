@@ -211,6 +211,36 @@ _piped_input() {
 }
 
 # Usage:
+#   _confirm_action <verb> <count> <tag>
+#
+# Prompts the user for confirmation before performing a bulk action on
+# tagged alarms. Skipped when -f (force/_YES) is set. In non-interactive
+# mode, prints a message asking the caller to pass -f.
+#
+# Exit / Error Status:
+#   0 (success, true)  If the action is confirmed.
+#   1 (error,  false)  If the action is denied or non-interactive without -f.
+_confirm_action() {
+  local _verb="${1}" _count="${2}" _tag="${3}"
+
+  (( _YES )) && return 0
+
+  if _interactive_input
+  then
+    printf "%s %s alarm(s) tagged [%s]? [y/N] " "${_verb}" "${_count}" "${_tag}"
+    local _reply
+    read -r _reply
+    case "${_reply}" in
+      [yY]*) return 0 ;;
+      *)     return 1 ;;
+    esac
+  else
+    printf "%s %s alarm(s) tagged [%s]? Pass -f to confirm.\n" "${_verb}" "${_count}" "${_tag}"
+    return 1
+  fi
+}
+
+# Usage:
 #   describe <name> <description>
 #   describe --get <name>
 #
@@ -1888,6 +1918,10 @@ tag() {
     if [[ "${_tag}" =~ ^[0-9]+$ ]]
     then
       _exit_1 printf "Tag cannot be a number: %s\\n" "${_tag}"
+    fi
+    if [[ "${_tag}" == "all" ]]
+    then
+      _exit_1 printf "Tag name 'all' is reserved.\\n"
     fi
   done
 

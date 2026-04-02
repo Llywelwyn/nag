@@ -109,3 +109,10 @@ load test_helper
   run_nag untag
   [ "${status}" -eq 1 ]
 }
+
+@test "tag rejects 'all' as a tag name" {
+  run_nag at "tomorrow 3pm" "test"
+  run_nag tag 1 all
+  [ "${status}" -eq 1 ]
+  [[ "${output}" =~ "reserved" ]]
+}
