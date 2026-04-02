@@ -87,3 +87,15 @@ load test_helper
   run "${_NAG}" -f skip all
   [ "${status}" -eq 1 ]
 }
+
+@test "skip one-shot cleans up snoozed metadata" {
+  run_nag at "tomorrow 3pm" "one-shot"
+  run_nag snooze 1
+  [ -f "${NAG_DIR}/snoozed" ]
+  run_nag skip 1
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "Stopped" ]]
+  if [ -f "${NAG_DIR}/snoozed" ]; then
+    ! grep -q "^1" "${NAG_DIR}/snoozed"
+  fi
+}

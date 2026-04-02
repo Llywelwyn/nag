@@ -197,3 +197,19 @@ SCRIPT
   [ "${status}" -eq 0 ]
   grep -q "expired snooze" "${_fired}"
 }
+
+@test "check sweeps orphaned snooze entries for removed alarms" {
+  local _future_ts=$(( $(date +%s) + 3600 ))
+  write_alarm "$(printf "2\t\t%s\t\treal alarm" "${_future_ts}")"
+  # ID 1 does not exist in alarms, ID 2 does.
+  printf "1\\n" > "${NAG_DIR}/snoozed"
+  printf "2\\n" >> "${NAG_DIR}/snoozed"
+
+  run_nag check
+  [ "${status}" -eq 0 ]
+
+  # Orphan ID 1 should be swept, ID 2 should remain.
+  [ -f "${NAG_DIR}/snoozed" ]
+  ! grep -q "^1$" "${NAG_DIR}/snoozed"
+  grep -q "^2$" "${NAG_DIR}/snoozed"
+}

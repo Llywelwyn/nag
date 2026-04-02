@@ -85,3 +85,36 @@ load test_helper
   run "${_NAG}" -f stop all
   [ "${status}" -eq 1 ]
 }
+
+@test "stop by ID cleans up snoozed metadata" {
+  run_nag at "tomorrow 3pm" "take a break"
+  run_nag snooze 1
+  [ -f "${NAG_DIR}/snoozed" ]
+  run_nag stop 1
+  [ "${status}" -eq 0 ]
+  if [ -f "${NAG_DIR}/snoozed" ]; then
+    ! grep -q "^1" "${NAG_DIR}/snoozed"
+  fi
+}
+
+@test "stop by tag cleans up snoozed metadata" {
+  run_nag at "tomorrow 3pm" "work task"
+  run_nag tag 1 work
+  run_nag snooze 1
+  [ -f "${NAG_DIR}/snoozed" ]
+  run "${_NAG}" -f stop work
+  [ "${status}" -eq 0 ]
+  if [ -f "${NAG_DIR}/snoozed" ]; then
+    ! grep -q "^1" "${NAG_DIR}/snoozed"
+  fi
+}
+
+@test "stop all cleans up snoozed metadata" {
+  run_nag at "tomorrow 3pm" "first"
+  run_nag at "tomorrow 4pm" "second"
+  run_nag snooze all
+  [ -f "${NAG_DIR}/snoozed" ]
+  run "${_NAG}" -f stop all
+  [ "${status}" -eq 0 ]
+  [ ! -f "${NAG_DIR}/snoozed" ] || [ ! -s "${NAG_DIR}/snoozed" ]
+}

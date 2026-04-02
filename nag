@@ -704,9 +704,9 @@ _is_snoozed() {
 #   _sweep_expired_snoozes
 #
 # Description:
-#   Remove expired snooze entries (those whose expiry timestamp is in the
-#   past). Indefinite entries (no expiry) are kept. If all entries are
-#   removed, the snoozed file is deleted.
+#   Remove stale snooze entries: expired (past expiry timestamp) and
+#   orphaned (alarm ID no longer exists in _ALARMS). Expects _ALARMS
+#   to be populated via _read_alarms before calling.
 _sweep_expired_snoozes() {
   [[ -f "${_SNOOZED_FILE}" ]] || return 0
 
@@ -718,11 +718,25 @@ _sweep_expired_snoozes() {
   while IFS= read -r _entry || [[ -n "${_entry}" ]]
   do
     [[ -n "${_entry}" ]] || continue
+
+    local _entry_id="${_entry%%$'\t'*}"
+
+    # Drop expired entries.
     if [[ "${_entry}" == *$'\t'* ]]
     then
       local _expiry="${_entry#*$'\t'}"
       (( _expiry <= _now )) && continue
     fi
+
+    # Drop orphaned entries (alarm no longer exists).
+    local _exists=0 _line
+    for _line in "${_ALARMS[@]:-}"
+    do
+      [[ -n "${_line}" ]] || continue
+      [[ "${_line%%$'\t'*}" == "${_entry_id}" ]] && _exists=1 && break
+    done
+    (( _exists )) || continue
+
     _keep+=("${_entry}")
   done < "${_SNOOZED_FILE}"
 
@@ -806,6 +820,16 @@ _remove_snoozed_entry() {
     mv -f "${_SNOOZED_FILE}.tmp" "${_SNOOZED_FILE}"
   fi
   return 0
+}
+
+# Usage:
+#   _cleanup_alarm_metadata <id>
+#
+# Description:
+#   Remove all metadata for an alarm ID (snoozed file entries).
+#   Called when an alarm is permanently removed.
+_cleanup_alarm_metadata() {
+  _remove_snoozed_entry "${1}" 2>/dev/null || true
 }
 
 # Usage:
@@ -1664,6 +1688,7 @@ stop() {
     _ALARMS=("${_new_alarms[@]}")
     _write_alarms
   fi
+  _cleanup_alarm_metadata "${_target}"
   _release_lock
 
   printf "Stopped alarm %s.\\n" "${_target}"
@@ -1712,7 +1737,6 @@ _stop_by_tag() {
     _ALARMS=("${_new_alarms[@]}")
     _write_alarms
   fi
-  _release_lock
 
   local _m
   for _m in "${_matched[@]}"
@@ -1720,8 +1744,10 @@ _stop_by_tag() {
     local _id _message
     _id="${_m%%$'\t'*}"
     _message="$(_get_alarm_field "${_m}" 5)"
+    _cleanup_alarm_metadata "${_id}"
     printf "Stopped [%s] %s\\n" "${_id}" "${_message}"
   done
+  _release_lock
 }
 
 _stop_all() {
@@ -1747,6 +1773,7 @@ _stop_all() {
     local _id _message
     _id="${_line%%$'\t'*}"
     _message="$(_get_alarm_field "${_line}" 5)"
+    _cleanup_alarm_metadata "${_id}"
     printf "Stopped [%s] %s\\n" "${_id}" "${_message}"
   done
 
@@ -1811,6 +1838,7 @@ skip() {
         _human_time="${REPLY}"
         printf "Skipped [%s] %s — next: %s\\n" "${_id}" "${_message}" "${_human_time}"
       else
+        _cleanup_alarm_metadata "${_id}"
         printf "Stopped [%s] %s\\n" "${_id}" "${_message}"
       fi
     else
@@ -1889,6 +1917,7 @@ _skip_by_tag() {
         _human_time="${REPLY}"
         printf "Skipped [%s] %s — next: %s\\n" "${_id}" "${_message}" "${_human_time}"
       else
+        _cleanup_alarm_metadata "${_id}"
         printf "Stopped [%s] %s\\n" "${_id}" "${_message}"
       fi
     else
@@ -1945,6 +1974,7 @@ _skip_all() {
       _human_time="${REPLY}"
       printf "Skipped [%s] %s — next: %s\\n" "${_id}" "${_message}" "${_human_time}"
     else
+      _cleanup_alarm_metadata "${_id}"
       printf "Stopped [%s] %s\\n" "${_id}" "${_message}"
     fi
   done
