@@ -1010,24 +1010,26 @@ help() {
     describe --get "${1}"
   else
     cat <<HEREDOC
-nag
-
-Version: ${_VERSION}
-
 Usage:
+  ${_ME}                                     list all alarms
   ${_ME} <time> <message...>                 one-shot alarm
   ${_ME} every <rules> <time> <message...>   repeating alarm
   ${_ME} stop <id>                           delete alarm
   ${_ME} skip <id>                           skip next occurrence
-  ${_ME} check                               fire expired alarms (cron)
+  ${_ME} check                               check and fire due alarms
+  ${_ME} mute                                mute alarm sounds
+  ${_ME} unmute                              unmute alarm sounds
   ${_ME} help [<subcommand>]                 show help
-  ${_ME}                                     list all alarms
+  ${_ME} version                             show version
 
 Options:
-  --yes  Skip all prompts.
+  --yes      Skip all prompts.
+  --version  Show version.
 
-Help:
-  ${_ME} help [<subcommand>]
+Environment:
+  NAG_DIR    Alarm storage directory (default: ~/.local/share/nag)
+  NAG_CMD    Notification command (default: notify-send)
+  NAG_SOUND  Sound file to play (default: freedesktop alarm sound)
 HEREDOC
   fi
 }
@@ -1222,8 +1224,10 @@ Usage:
   ${_ME} check
 
 Description:
-  Fire expired alarms. Intended to be run by cron every minute.
-  Repeating alarms are rescheduled. One-shot alarms are removed.
+  Check for due alarms and fire them. Run automatically by a systemd
+  timer (every 15s) or cron (every 60s). Repeating alarms are
+  rescheduled. One-shot alarms are removed. Stale alarms older than
+  15 minutes are silently dropped or rescheduled without firing.
 HEREDOC
 check() {
   [[ -f "${_ALARMS_FILE}" ]] || return 0
@@ -1345,12 +1349,21 @@ Usage:
   ${_ME} every <rules> <time> <message...>
 
 Description:
-  Create a repeating alarm. Rules are a comma-separated list of repeat
-  schedules: hour, day, weekday, weekend, monday-sunday, month, year.
+  Create a repeating alarm. Rules are comma-separated and case-insensitive.
+
+Rules (and aliases):
+  hour    (h, hourly)    monday    (mon, mondays)
+  day     (d, daily)     tuesday   (tue, tuesdays)
+  week    (weekly)       wednesday (wed, wednesdays)
+  month   (monthly)      thursday  (thurs, thursdays)
+  year    (yearly)       friday    (fri, fridays)
+  weekday (weekdays)     saturday  (sat, saturdays)
+  weekend (weekends)     sunday    (sun, sundays)
 
 Examples:
-  ${_ME} every weekday "tomorrow 9am" standup meeting
-  ${_ME} every "tuesday,thursday" "tomorrow 3pm" team sync
+  ${_ME} every weekday 9am standup meeting
+  ${_ME} every tue,thu 3pm team sync
+  ${_ME} every year "December 25" Christmas
 HEREDOC
 every() {
   local _rules_str="${1:-}"
