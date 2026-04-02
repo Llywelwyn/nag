@@ -655,6 +655,42 @@ _is_muted() {
 }
 
 # Usage:
+#   _remove_snoozed_entry <key>
+#
+# Description:
+#   Remove the entry whose key matches <key> from the snoozed file.
+#   Returns 1 if no matching entry was found or the file does not exist.
+_remove_snoozed_entry() {
+  local _key="${1}"
+  [[ -f "${_SNOOZED_FILE}" ]] || return 1
+
+  local -a _keep=()
+  local _removed=0 _entry
+  while IFS= read -r _entry || [[ -n "${_entry}" ]]
+  do
+    [[ -n "${_entry}" ]] || continue
+    local _entry_key="${_entry%%$'\t'*}"
+    if [[ "${_entry_key}" == "${_key}" ]]
+    then
+      _removed=1
+    else
+      _keep+=("${_entry}")
+    fi
+  done < "${_SNOOZED_FILE}"
+
+  (( _removed )) || return 1
+
+  if (( ${#_keep[@]} == 0 ))
+  then
+    rm -f "${_SNOOZED_FILE}"
+  else
+    printf "%s\n" "${_keep[@]}" > "${_SNOOZED_FILE}.tmp"
+    mv -f "${_SNOOZED_FILE}.tmp" "${_SNOOZED_FILE}"
+  fi
+  return 0
+}
+
+# Usage:
 #   _tag_list <tag>
 #
 # Description:
@@ -1238,6 +1274,7 @@ Usage:
   ${_ME} tag <tag>                           list alarms with a tag
   ${_ME} untag <id> <tags...>                remove tags from an alarm
   ${_ME} snooze <all|id|tag> [<duration>]      snooze alarms
+  ${_ME} unsnooze <all|id|tag>               unsnooze alarms
   ${_ME} check                               check and fire due alarms
   ${_ME} mute <all|tag>                      mute alarm sounds
   ${_ME} unmute <all|tag>                    unmute alarm sounds
@@ -2084,6 +2121,121 @@ snooze() {
     _release_lock
     printf "Snoozed [%s] %s.\\n" "${_target}" "${_message}"
   fi
+}
+
+_unsnooze_by_tag() {
+  local _tag="${1}"
+
+  _acquire_lock
+
+  if [[ ! -f "${_SNOOZED_FILE}" ]]
+  then
+    _release_lock
+    _exit_1 printf "Tag [%s] is not snoozed.\\n" "${_tag}"
+  fi
+
+  local _found_in_file=0 _entry
+  while IFS= read -r _entry || [[ -n "${_entry}" ]]
+  do
+    [[ -n "${_entry}" ]] || continue
+    local _key="${_entry%%$'\t'*}"
+    [[ "${_key}" == "${_tag}" ]] && _found_in_file=1 && break
+  done < "${_SNOOZED_FILE}"
+
+  if (( ! _found_in_file ))
+  then
+    _release_lock
+    _exit_1 printf "Tag [%s] is not snoozed.\\n" "${_tag}"
+  fi
+
+  _read_alarms
+  local _match_count=0 _line
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _tags
+    _tags="$(_get_alarm_field "${_line}" 2)"
+    _alarm_has_tag "${_tags}" "${_tag}" && _match_count=$((_match_count + 1))
+  done
+
+  if ! _confirm_action "Unsnooze" "${_match_count}" "${_tag}"
+  then
+    _release_lock
+    return 0
+  fi
+
+  _remove_snoozed_entry "${_tag}"
+  _release_lock
+  printf "Unsnoozed [%s].\\n" "${_tag}"
+}
+
+# unsnooze ###################################################################
+
+describe "unsnooze" <<HEREDOC
+Usage:
+  ${_ME} unsnooze <all|id|tag>
+
+Description:
+  Unsnooze alarms. With "all", unsnoozes everything. With an ID,
+  unsnoozes that alarm. With a tag, unsnoozes all alarms with that tag.
+HEREDOC
+unsnooze() {
+  local _target="${1:-}"
+  [[ -n "${_target}" ]] || _exit_1 printf "Usage: %s unsnooze <all|id|tag>\\n" "${_ME}"
+
+  if [[ "${_target}" == "all" ]]
+  then
+    if [[ -f "${_SNOOZED_FILE}" ]]
+    then
+      _acquire_lock
+      rm -f "${_SNOOZED_FILE}"
+      _release_lock
+      printf "Unsnoozed all.\\n"
+    else
+      printf "Nothing is snoozed.\\n"
+    fi
+    return
+  fi
+
+  if [[ ! "${_target}" =~ ^[0-9]+$ ]]
+  then
+    _unsnooze_by_tag "${_target}"
+    return
+  fi
+
+  # Numeric: unsnooze by ID.
+  _acquire_lock
+  _read_alarms
+
+  local _found=0 _message="" _line
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _id
+    _id="${_line%%$'\t'*}"
+    if [[ "${_id}" == "${_target}" ]]
+    then
+      _found=1
+      _message="$(_get_alarm_field "${_line}" 5)"
+      break
+    fi
+  done
+
+  if (( ! _found ))
+  then
+    _release_lock
+    _exit_1 printf "No alarm with ID %s.\\n" "${_target}"
+  fi
+
+  if ! _remove_snoozed_entry "${_target}"
+  then
+    _release_lock
+    printf "Alarm %s is not snoozed.\\n" "${_target}"
+    return
+  fi
+
+  _release_lock
+  printf "Unsnoozed [%s] %s.\\n" "${_target}" "${_message}"
 }
 
 # edit ########################################################################
