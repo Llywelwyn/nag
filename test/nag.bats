@@ -74,11 +74,37 @@ load test_helper
 @test "at rejects yesterday" {
   run_nag at "yesterday 3pm" "too late"
   [ "${status}" -eq 1 ]
+  [[ "${output}" =~ "past" ]]
 }
 
 @test "at rejects ago" {
   run_nag at "2 hours ago" "too late"
   [ "${status}" -eq 1 ]
+  [[ "${output}" =~ "past" ]]
+}
+
+@test "at rejects last" {
+  run_nag at "last friday" "too late"
+  [ "${status}" -eq 1 ]
+  [[ "${output}" =~ "past" ]]
+}
+
+@test "invalid time with ago says invalid, not past" {
+  run_nag at "sdjkfhskdjfh ago" "nope"
+  [ "${status}" -eq 1 ]
+  [[ "${output}" =~ "Invalid time" ]]
+}
+
+@test "invalid time with yesterday says invalid, not past" {
+  run_nag at "sdjkfh yesterday blah" "nope"
+  [ "${status}" -eq 1 ]
+  [[ "${output}" =~ "Invalid time" ]]
+}
+
+@test "invalid time with last says invalid, not past" {
+  run_nag at "last sdjkfh" "nope"
+  [ "${status}" -eq 1 ]
+  [[ "${output}" =~ "Invalid time" ]]
 }
 
 @test "at rolls past date forward to next year" {

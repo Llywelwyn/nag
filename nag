@@ -618,7 +618,7 @@ _validate_and_normalise_rules() {
   do
     local _canon
     _canon="$(_normalise_rule "${_rule}")" ||
-      _exit_1 printf "Invalid rule: %s\\n" "${_rule}"
+      _exit_1 printf "Invalid rule: %s.\\n" "${_rule}"
     _normalised+=("${_canon}")
   done
   IFS=$'\n\t'
@@ -854,16 +854,16 @@ _parse_time() {
   local _time_str="${1:-}"
   [[ -n "${_time_str}" ]] || _exit_1 printf "No time specified.\\n"
 
-  local _lower
-  _lower="$(printf "%s" "${_time_str}" | tr '[:upper:]' '[:lower:]')"
-  if [[ "${_lower}" == *"yesterday"* ]] || [[ "${_lower}" == *" ago"* ]]
-  then
-    _exit_1 printf "Time is in the past: %s\\n" "${_time_str}"
-  fi
-
   local _timestamp
   _timestamp="$(date -d "${_time_str}" +%s 2>/dev/null)" ||
-    _exit_1 printf "Invalid time: %s\\n" "${_time_str}"
+    _exit_1 printf "Invalid time: %s. See 'date -d' for accepted formats.\\n" "${_time_str}"
+
+  local _lower
+  _lower="$(printf "%s" "${_time_str}" | tr '[:upper:]' '[:lower:]')"
+  if [[ "${_lower}" == *"yesterday"* ]] || [[ "${_lower}" == *" ago"* ]] || [[ "${_lower}" == "last "* ]]
+  then
+    _exit_1 printf "Time is in the past: %s.\\n" "${_time_str}"
+  fi
 
   local _now
   _now="$(date +%s)"
