@@ -1,5 +1,33 @@
 nag, a bash script for setting one-off or repeating alarms
 
+```text
+Usage:
+  nag                                     list all alarms
+  nag <time> <message...>                 one-shot alarm
+  nag every <rules> <time> <message...>   repeating alarm
+  nag stop <id>                           delete alarm
+  nag skip <id>                           skip next occurrence
+  nag tag <id> <tags...>                  add tags to an alarm
+  nag tag <tag>                           list alarms with a tag
+  nag untag <id> <tags...>                remove tags from an alarm
+  nag check                               check and fire due alarms
+  nag mute                                mute alarm sounds
+  nag unmute                              unmute alarm sounds
+  nag edit                                edit alarms file directly
+  nag help [<subcommand>]                 show help
+  nag version                             show version
+
+Options:
+  -e  Edit alarms file directly.
+  -f  Skip all prompts.
+  -v  Show version.
+
+Environment:
+  NAG_DIR    Alarm storage directory (default: ~/.local/share/nag)
+  NAG_CMD    Notification command (default: notify-send)
+  NAG_SOUND  Sound file to play (default: freedesktop bell sound)
+```
+
 ### Help
 
 <p>
@@ -14,9 +42,12 @@ nag, a bash script for setting one-off or repeating alarms
   <a href="#nag-every"><code>every</code></a>&nbsp;·
   <a href="#nag-stop"><code>stop</code></a>&nbsp;·
   <a href="#nag-skip"><code>skip</code></a>&nbsp;·
+  <a href="#nag-tag"><code>tag</code></a>&nbsp;·
+  <a href="#nag-untag"><code>untag</code></a>&nbsp;·
   <a href="#nag-check"><code>check</code></a>&nbsp;·
   <a href="#nag-mute"><code>mute</code></a>&nbsp;·
   <a href="#nag-unmute"><code>unmute</code></a>&nbsp;·
+  <a href="#nag-edit"><code>edit</code></a>&nbsp;·
   <a href="#nag-help"><code>help</code></a>&nbsp;·
   <a href="#nag-version"><code>version</code></a>
 </div>
@@ -122,6 +153,40 @@ Description:
   For one-shot alarms, this deletes them.
 ```
 
+#### `nag tag`
+
+<p>
+  <sup>
+    <a href="#help">↑</a>
+  </sup>
+</p>
+
+```text
+Usage:
+  nag tag <id> <tags...>    add tags to an alarm
+  nag tag <tag>             list alarms with a tag
+
+Description:
+  Add tags to an alarm by ID, or list all alarms matching a tag.
+  Tags must not be pure integers.
+```
+
+#### `nag untag`
+
+<p>
+  <sup>
+    <a href="#help">↑</a>
+  </sup>
+</p>
+
+```text
+Usage:
+  nag untag <id> <tags...>
+
+Description:
+  Remove one or more tags from an alarm.
+```
+
 #### `nag check`
 
 <p>
@@ -173,6 +238,22 @@ Description:
   Unmute alarm sounds.
 ```
 
+#### `nag edit`
+
+<p>
+  <sup>
+    <a href="#help">↑</a>
+  </sup>
+</p>
+
+```text
+Usage:
+  nag ( edit | -e )
+
+Description:
+  Open the alarms file in $EDITOR (falls back to $VISUAL, then vi).
+```
+
 #### `nag help`
 
 <p>
@@ -199,7 +280,7 @@ Description:
 
 ```text
 Usage:
-  nag ( version | --version )
+  nag ( version | -v )
 
 Description:
   Display the current program version.

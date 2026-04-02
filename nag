@@ -1131,10 +1131,13 @@ Usage:
   ${_ME} every <rules> <time> <message...>   repeating alarm
   ${_ME} stop <id>                           delete alarm
   ${_ME} skip <id>                           skip next occurrence
+  ${_ME} tag <id> <tags...>                  add tags to an alarm
+  ${_ME} tag <tag>                           list alarms with a tag
+  ${_ME} untag <id> <tags...>                remove tags from an alarm
   ${_ME} check                               check and fire due alarms
-  ${_ME} edit                                edit alarms file directly
   ${_ME} mute                                mute alarm sounds
   ${_ME} unmute                              unmute alarm sounds
+  ${_ME} edit                                edit alarms file directly
   ${_ME} help [<subcommand>]                 show help
   ${_ME} version                             show version
 
