@@ -1182,6 +1182,87 @@ _first_occurrence() {
 }
 
 # Usage:
+#   _unskip_timestamp <timestamp> <rules>
+#
+# Description:
+#   Compute the next natural occurrence of a repeating alarm from now.
+#   Handles each rule type appropriately: day-of-week rules use today's
+#   date at alarm's time, month preserves day-of-month, year preserves
+#   month and day. For comma-separated rules, returns the earliest.
+_unskip_timestamp() {
+  local _timestamp="${1}" _rules="${2}"
+  local _now
+  _now="$(date +%s)"
+
+  local _time_of_day _alarm_day _alarm_month
+  _time_of_day="$(date -d "@${_timestamp}" +%H:%M:%S)"
+  _alarm_day="$(date -d "@${_timestamp}" +%-d)"
+  _alarm_month="$(date -d "@${_timestamp}" +%-m)"
+
+  local _earliest=""
+  local IFS=","
+  local _rule
+  for _rule in ${_rules}
+  do
+    local _candidate=""
+    case "${_rule}" in
+      hour)
+        _candidate="$((_now - (_now % 3600) + $(date -d "@${_timestamp}" +%s) % 3600))"
+        if (( _candidate <= _now )); then
+          _candidate=$((_candidate + 3600))
+        fi
+        ;;
+      day)
+        _candidate="$(date -d "$(date +%Y-%m-%d) ${_time_of_day}" +%s)"
+        if (( _candidate <= _now )); then
+          _candidate="$(date -d "$(date +%Y-%m-%d) + 1 day ${_time_of_day}" +%s)"
+        fi
+        ;;
+      month)
+        local _year_now _month_now
+        _year_now="$(date +%Y)"
+        _month_now="$(date +%-m)"
+        _candidate="$(date -d "$(printf "%04d-%02d-%02d %s" "${_year_now}" "${_month_now}" "${_alarm_day}" "${_time_of_day}")" +%s 2>/dev/null)" || _candidate=0
+        if (( _candidate <= _now )); then
+          if (( _candidate == 0 )); then
+            _candidate="$(date -d "$(date +%Y-%m-%d) ${_time_of_day}" +%s)"
+          fi
+          _candidate="$(_next_month "${_candidate}" "${_time_of_day}")"
+        fi
+        ;;
+      year)
+        local _year_now
+        _year_now="$(date +%Y)"
+        _candidate="$(date -d "$(printf "%04d-%02d-%02d %s" "${_year_now}" "${_alarm_month}" "${_alarm_day}" "${_time_of_day}")" +%s 2>/dev/null)" || _candidate=0
+        if (( _candidate <= _now )); then
+          if (( _candidate == 0 )); then
+            _candidate="$(date -d "$(date +%Y-%m-%d) ${_time_of_day}" +%s)"
+          fi
+          _candidate="$(_next_year "${_candidate}" "${_time_of_day}")"
+        fi
+        ;;
+      *)
+        # Day-of-week rules (weekday, weekend, mon-sun, week).
+        local _today_at_alarm_time
+        _today_at_alarm_time="$(date -d "$(date +%Y-%m-%d) ${_time_of_day}" +%s)"
+        _candidate="$(_first_occurrence "${_rule}" "${_today_at_alarm_time}")"
+        if (( _candidate <= _now )); then
+          _candidate="$(_next_occurrence "${_rule}" "${_candidate}")"
+        fi
+        ;;
+    esac
+
+    if [[ -n "${_candidate}" ]] && (( _candidate > 0 )); then
+      if [[ -z "${_earliest}" ]] || (( _candidate < _earliest )); then
+        _earliest="${_candidate}"
+      fi
+    fi
+  done
+
+  printf "%s" "${_earliest}"
+}
+
+# Usage:
 #   _timestamp_matches_rule <rules> <timestamp>
 #
 # Description:
@@ -1385,6 +1466,7 @@ Usage:
   ${_ME} every <rules> <time> <message...>   repeating alarm
   ${_ME} stop <all|id|tag>                   delete alarm(s)
   ${_ME} skip <all|id|tag>                   skip next occurrence(s)
+  ${_ME} unskip <all|id|tag>                 reset to next occurrence
   ${_ME} tag <id> <tags...>                  add tags to an alarm
   ${_ME} tag <tag>                           list alarms with a tag
   ${_ME} untag <id> <tags...>                remove tags from an alarm
@@ -1845,6 +1927,219 @@ _skip_all() {
     _ALARMS=("${_new_alarms[@]}")
     _write_alarms
   fi
+  _release_lock
+}
+
+# unskip ######################################################################
+
+describe "unskip" <<HEREDOC
+Usage:
+  ${_ME} unskip <all|id|tag>
+
+Description:
+  Reset a repeating alarm to its next natural occurrence from today.
+  Reverses skips that pushed the alarm further into the future.
+  Only applies to repeating alarms. With a tag, applies to all
+  matching repeating alarms. With "all", resets every repeating alarm.
+HEREDOC
+unskip() {
+  local _target="${1:-}"
+  [[ -n "${_target}" ]] || _exit_1 printf "Usage: %s unskip <all|id|tag>\\n" "${_ME}"
+
+  if [[ "${_target}" == "all" ]]
+  then
+    _unskip_all
+    return
+  fi
+
+  if [[ ! "${_target}" =~ ^[0-9]+$ ]]
+  then
+    _unskip_by_tag "${_target}"
+    return
+  fi
+
+  _acquire_lock
+  _read_alarms
+
+  local -a _new_alarms=()
+  local _found=0 _line
+
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _id _tags _timestamp _rule _message
+    _id="$(_get_alarm_field "${_line}" 1)"
+    _tags="$(_get_alarm_field "${_line}" 2)"
+    _timestamp="$(_get_alarm_field "${_line}" 3)"
+    _rule="$(_get_alarm_field "${_line}" 4)"
+    _message="$(_get_alarm_field "${_line}" 5)"
+
+    if [[ "${_id}" == "${_target}" ]]
+    then
+      _found=1
+      if [[ -z "${_rule}" ]]
+      then
+        _release_lock
+        _exit_1 printf "Alarm %s is a one-shot (no rule to unskip).\\n" "${_target}"
+      fi
+
+      local _new_ts
+      _new_ts="$(_unskip_timestamp "${_timestamp}" "${_rule}")"
+
+      _new_alarms+=("$(printf "%s\t%s\t%s\t%s\t%s" "${_id}" "${_tags}" "${_new_ts}" "${_rule}" "${_message}")")
+
+      local _human_time
+      _format_time "${_new_ts}"
+      _human_time="${REPLY}"
+      printf "Unskipped [%s] %s — next: %s\\n" "${_id}" "${_message}" "${_human_time}"
+    else
+      _new_alarms+=("${_line}")
+    fi
+  done
+
+  if (( ! _found ))
+  then
+    _release_lock
+    _exit_1 printf "No alarm with ID %s.\\n" "${_target}"
+  fi
+
+  _ALARMS=("${_new_alarms[@]}")
+  _write_alarms
+  _release_lock
+}
+
+_unskip_by_tag() {
+  local _tag="${1}"
+
+  _acquire_lock
+  _read_alarms
+
+  local _match_count=0 _line
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _tags _rule
+    _tags="$(_get_alarm_field "${_line}" 2)"
+    _rule="$(_get_alarm_field "${_line}" 4)"
+    if _alarm_has_tag "${_tags}" "${_tag}" && [[ -n "${_rule}" ]]
+    then
+      _match_count=$((_match_count + 1))
+    fi
+  done
+
+  if (( _match_count == 0 ))
+  then
+    _release_lock
+    _exit_1 printf "No repeating alarms tagged [%s].\\n" "${_tag}"
+  fi
+
+  if ! _confirm_action "Unskip" "${_match_count}" "${_tag}"
+  then
+    _release_lock
+    return 0
+  fi
+
+  local -a _new_alarms=()
+
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _id _tags _timestamp _rule _message
+    _id="$(_get_alarm_field "${_line}" 1)"
+    _tags="$(_get_alarm_field "${_line}" 2)"
+    _timestamp="$(_get_alarm_field "${_line}" 3)"
+    _rule="$(_get_alarm_field "${_line}" 4)"
+    _message="$(_get_alarm_field "${_line}" 5)"
+
+    if _alarm_has_tag "${_tags}" "${_tag}" && [[ -n "${_rule}" ]]
+    then
+      local _new_ts
+      _new_ts="$(_unskip_timestamp "${_timestamp}" "${_rule}")"
+
+      _new_alarms+=("$(printf "%s\t%s\t%s\t%s\t%s" "${_id}" "${_tags}" "${_new_ts}" "${_rule}" "${_message}")")
+      local _human_time
+      _format_time "${_new_ts}"
+      _human_time="${REPLY}"
+      printf "Unskipped [%s] %s — next: %s\\n" "${_id}" "${_message}" "${_human_time}"
+    else
+      _new_alarms+=("${_line}")
+    fi
+  done
+
+  _ALARMS=("${_new_alarms[@]}")
+  _write_alarms
+  _release_lock
+}
+
+_unskip_all() {
+  _acquire_lock
+  _read_alarms
+
+  local _match_count=0 _line
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _rule
+    _rule="$(_get_alarm_field "${_line}" 4)"
+    [[ -n "${_rule}" ]] && _match_count=$((_match_count + 1))
+  done
+
+  if (( _match_count == 0 ))
+  then
+    _release_lock
+    _exit_1 printf "No repeating alarms to unskip.\\n"
+  fi
+
+  if (( ! _YES ))
+  then
+    if _interactive_input
+    then
+      printf "Unskip all %s repeating alarm(s)? [y/N] " "${_match_count}"
+      local _reply
+      read -r _reply
+      case "${_reply}" in
+        [yY]*) ;;
+        *)
+          _release_lock
+          return 0
+          ;;
+      esac
+    else
+      _release_lock
+      printf "Unskip all %s repeating alarm(s)? Pass -f to confirm.\\n" "${_match_count}"
+      return 0
+    fi
+  fi
+
+  local -a _new_alarms=()
+
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _id _tags _timestamp _rule _message
+    _id="$(_get_alarm_field "${_line}" 1)"
+    _tags="$(_get_alarm_field "${_line}" 2)"
+    _timestamp="$(_get_alarm_field "${_line}" 3)"
+    _rule="$(_get_alarm_field "${_line}" 4)"
+    _message="$(_get_alarm_field "${_line}" 5)"
+
+    if [[ -n "${_rule}" ]]
+    then
+      local _new_ts
+      _new_ts="$(_unskip_timestamp "${_timestamp}" "${_rule}")"
+
+      _new_alarms+=("$(printf "%s\t%s\t%s\t%s\t%s" "${_id}" "${_tags}" "${_new_ts}" "${_rule}" "${_message}")")
+      local _human_time
+      _format_time "${_new_ts}"
+      _human_time="${REPLY}"
+      printf "Unskipped [%s] %s — next: %s\\n" "${_id}" "${_message}" "${_human_time}"
+    else
+      _new_alarms+=("${_line}")
+    fi
+  done
+
+  _ALARMS=("${_new_alarms[@]}")
+  _write_alarms
   _release_lock
 }
 
