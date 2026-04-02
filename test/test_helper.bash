@@ -17,3 +17,8 @@ teardown() {
 run_nag() {
   run "${_NAG}" --yes "$@"
 }
+
+write_alarm() {
+  mkdir -p "${NAG_DIR}"
+  printf "%s\\n" "$1" >> "${NAG_DIR}/alarms"
+}
