@@ -84,13 +84,13 @@ load test_helper
   [[ "${output}" =~ "Tomorrow,".*"tomorrow alarm" ]]
 }
 
-@test "list shows This <day> for alarm 3 days away" {
+@test "list shows <day> for alarm 3 days away" {
   local _ts=$(( $(date -d "$(date +%Y-%m-%d)" +%s) + 86400 * 3 + 43200 ))
   local _day="$(date -d "@${_ts}" +%A)"
   write_alarm "$(printf '1\t\t%s\t\tthis alarm' "${_ts}")"
   run_nag
   [ "${status}" -eq 0 ]
-  [[ "${output}" =~ "This ${_day},".*"this alarm" ]]
+  [[ "${output}" =~ "${_day},".*"this alarm" ]]
 }
 
 @test "list shows Next <day> for alarm 10 days away" {
@@ -124,11 +124,22 @@ load test_helper
   run_nag at "tomorrow 3pm" "take a break"
   local _expiry_ts=$(( $(date +%s) + 86400 * 7 ))
   printf "1\t%s\\n" "${_expiry_ts}" > "${NAG_DIR}/snoozed"
-  local _expiry_date
-  _expiry_date="$(date -d "@${_expiry_ts}" "+%b %-d")"
   run_nag
   [ "${status}" -eq 0 ]
-  [[ "${output}" =~ "snoozed until ${_expiry_date}" ]]
+  # Should use the same format as list dates (e.g. "Next Monday, 3pm").
+  [[ "${output}" =~ "snoozed until " ]]
+  [[ "${output}" =~ "am)" ]] || [[ "${output}" =~ "pm)" ]]
+}
+
+@test "list shows year for alarm in a different year" {
+  local _next_year=$(( $(date +%Y) + 1 ))
+  local _ts
+  _ts="$(date -d "${_next_year}-06-15 14:00:00" +%s)"
+  write_alarm "$(printf '1\t\t%s\t\tnext year alarm' "${_ts}")"
+  run_nag
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "${_next_year}" ]]
+  [[ "${output}" =~ "next year alarm" ]]
 }
 
 @test "list does not show (snoozed) for unsnoozed alarm" {
@@ -136,4 +147,24 @@ load test_helper
   run_nag
   [ "${status}" -eq 0 ]
   [[ ! "${output}" =~ "snoozed" ]]
+}
+
+@test "--iso flag shows YYYY-MM-DD HH:MM:SS format" {
+  local _ts=$(( $(date -d "$(date +%Y-%m-%d)" +%s) + 86400 + 54000 ))
+  write_alarm "$(printf '1\t\t%s\t\traw alarm' "${_ts}")"
+  local _expected
+  _expected="$(date -d "@${_ts}" "+%Y-%m-%d %H:%M:%S")"
+  run "${_NAG}" -f --iso
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "${_expected}" ]]
+  [[ "${output}" =~ "raw alarm" ]]
+}
+
+@test "--epoch flag shows unix timestamps" {
+  local _ts=$(( $(date -d "$(date +%Y-%m-%d)" +%s) + 86400 + 54000 ))
+  write_alarm "$(printf '1\t\t%s\t\tepoch alarm' "${_ts}")"
+  run "${_NAG}" -f --epoch
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "${_ts}" ]]
+  [[ "${output}" =~ "epoch alarm" ]]
 }

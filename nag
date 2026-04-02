@@ -335,6 +335,8 @@ _SUBCOMMAND=""
 _SUBCOMMAND_ARGUMENTS=()
 _USE_DEBUG=0
 _YES=0
+_RAW_TIME=0
+_EPOCH_TIME=0
 
 while ((${#}))
 do
@@ -355,6 +357,12 @@ do
       ;;
     -f)
       _YES=1
+      ;;
+    --iso)
+      _RAW_TIME=1
+      ;;
+    --epoch)
+      _EPOCH_TIME=1
       ;;
     *)
       # The first non-option argument is assumed to be the subcommand name.
@@ -754,9 +762,8 @@ _get_snooze_display() {
       local _expiry="${_entry#*$'\t'}"
       if (( _expiry > _now ))
       then
-        local _until_date
-        _until_date="$(date -d "@${_expiry}" "+%b %-d")"
-        REPLY=" (snoozed until ${_until_date})"
+        _format_time "${_expiry}"
+        REPLY=" (snoozed until ${REPLY})"
       fi
     else
       REPLY=" (snoozed)"
@@ -879,6 +886,18 @@ _tag_list() {
 _format_time() {
   local _timestamp="${1}"
 
+  if (( _EPOCH_TIME ))
+  then
+    REPLY="${_timestamp}"
+    return
+  fi
+
+  if (( _RAW_TIME ))
+  then
+    REPLY="$(date -d "@${_timestamp}" "+%Y-%m-%d %H:%M:%S")"
+    return
+  fi
+
   # Single date call to get all needed components.
   local _date_parts
   _date_parts="$(date -d "@${_timestamp}" "+%-I|%M|%p|%Y-%m-%d|%A|%a %b %-d")"
@@ -929,12 +948,21 @@ _format_time() {
     _date_prefix="Tomorrow"
   elif (( _days_away <= 6 ))
   then
-    _date_prefix="This ${_day_name}"
+    _date_prefix="${_day_name}"
   elif (( _days_away <= 13 ))
   then
     _date_prefix="Next ${_day_name}"
   else
-    _date_prefix="${_short_date}"
+    local _alarm_year
+    _alarm_year="$(date -d "${_alarm_date}" +%Y)"
+    local _this_year
+    _this_year="$(date +%Y)"
+    if [[ "${_alarm_year}" != "${_this_year}" ]]
+    then
+      _date_prefix="${_short_date} ${_alarm_year}"
+    else
+      _date_prefix="${_short_date}"
+    fi
   fi
 
   REPLY="${_date_prefix}, ${_time_fmt}"
@@ -1470,7 +1498,7 @@ Usage:
   ${_ME} tag <id> <tags...>                  add tags to an alarm
   ${_ME} tag <tag>                           list alarms with a tag
   ${_ME} untag <id> <tags...>                remove tags from an alarm
-  ${_ME} snooze <all|id|tag> [<duration>]      snooze alarms
+  ${_ME} snooze <all|id|tag> [<duration>]    snooze alarms
   ${_ME} unsnooze <all|id|tag>               unsnooze alarms
   ${_ME} check                               check and fire due alarms
   ${_ME} mute <all|tag>                      mute alarm sounds
@@ -1480,9 +1508,11 @@ Usage:
   ${_ME} version                             show version
 
 Options:
-  -e  Edit alarms file directly.
-  -f  Skip all prompts.
-  -v  Show version.
+  -e         Edit alarms file directly.
+  -f         Skip all prompts.
+  --iso      Show times as YYYY-MM-DD HH:MM:SS.
+  --epoch    Show times as unix timestamps.
+  -v         Show version.
 
 Environment:
   NAG_DIR    Alarm storage directory (default: ~/.local/share/nag)
@@ -2459,7 +2489,8 @@ _snooze_by_tag() {
   if [[ -n "${_duration_str}" ]]
   then
     _until_ts="$(_parse_time "${_duration_str}")"
-    _until_date="$(date -d "@${_until_ts}" "+%b %-d")"
+    _format_time "${_until_ts}"
+    _until_date="${REPLY}"
   fi
 
   for _line in "${_ALARMS[@]}"
@@ -2506,7 +2537,8 @@ snooze() {
     if [[ -n "${_duration_str}" ]]
     then
       _until_ts="$(_parse_time "${_duration_str}")"
-      _until_date="$(date -d "@${_until_ts}" "+%b %-d")"
+      _format_time "${_until_ts}"
+      _until_date="${REPLY}"
     fi
 
     local _line
@@ -2570,9 +2602,8 @@ snooze() {
     _until_ts="$(_parse_time "${_duration_str}")"
     printf "%s\t%s\\n" "${_target}" "${_until_ts}" >> "${_SNOOZED_FILE}"
     _release_lock
-    local _until_date
-    _until_date="$(date -d "@${_until_ts}" "+%b %-d")"
-    printf "Snoozed [%s] %s until %s.\\n" "${_target}" "${_message}" "${_until_date}"
+    _format_time "${_until_ts}"
+    printf "Snoozed [%s] %s until %s.\\n" "${_target}" "${_message}" "${REPLY}"
   else
     printf "%s\\n" "${_target}" >> "${_SNOOZED_FILE}"
     _release_lock
