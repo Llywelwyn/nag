@@ -45,6 +45,7 @@ NAG_CMD="${NAG_CMD:-notify-send}"
 # Sound file to play when an alarm fires. Empty or missing file = no sound.
 NAG_SOUND="${NAG_SOUND-/usr/share/sounds/freedesktop/stereo/bell.oga}"
 _MUTE_FILE="${NAG_DIR}/mute"
+_SNOOZED_FILE="${NAG_DIR}/snoozed"
 
 # The default subcommand if no args are passed.
 NAG_DEFAULT="${NAG_DEFAULT:-list}"
@@ -1236,6 +1237,7 @@ Usage:
   ${_ME} tag <id> <tags...>                  add tags to an alarm
   ${_ME} tag <tag>                           list alarms with a tag
   ${_ME} untag <id> <tags...>                remove tags from an alarm
+  ${_ME} snooze <all|id|tag> [<duration>]      snooze alarms
   ${_ME} check                               check and fire due alarms
   ${_ME} mute <all|tag>                      mute alarm sounds
   ${_ME} unmute <all|tag>                    unmute alarm sounds
@@ -1945,6 +1947,70 @@ unmute() {
     fi
     printf "Unmuted [%s].\n" "${_target}"
   fi
+}
+
+# snooze ######################################################################
+
+describe "snooze" <<HEREDOC
+Usage:
+  ${_ME} snooze <all|id|tag> [<duration>]
+
+Description:
+  Snooze alarms to prevent them from firing. Snoozed alarms stay in the
+  alarm file but are skipped by check. With "all", snoozes every alarm.
+  With an ID, snoozes that alarm. With a tag, snoozes all alarms with
+  that tag. Optional duration sets an automatic expiry.
+
+Examples:
+  ${_ME} snooze all              snooze everything
+  ${_ME} snooze 3               snooze alarm 3
+  ${_ME} snooze work            snooze all [work] alarms
+  ${_ME} snooze 3 "2 weeks"    snooze alarm 3 for 2 weeks
+  ${_ME} snooze all "July 15"  snooze everything until July 15
+HEREDOC
+snooze() {
+  local _target="${1:-}"
+  [[ -n "${_target}" ]] || _exit_1 printf "Usage: %s snooze <all|id|tag> [<duration>]\\n" "${_ME}"
+
+  # "all" and tag: placeholder for Task 5.
+  if [[ "${_target}" == "all" ]]
+  then
+    _exit_1 printf "Not yet implemented.\\n"
+  fi
+
+  if [[ ! "${_target}" =~ ^[0-9]+$ ]]
+  then
+    _exit_1 printf "Not yet implemented.\\n"
+  fi
+
+  # Numeric: snooze by ID.
+  _acquire_lock
+  _read_alarms
+
+  local _found=0 _message="" _line
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _id
+    _id="${_line%%$'\t'*}"
+    if [[ "${_id}" == "${_target}" ]]
+    then
+      _found=1
+      _message="$(_get_alarm_field "${_line}" 5)"
+      break
+    fi
+  done
+
+  if (( ! _found ))
+  then
+    _release_lock
+    _exit_1 printf "No alarm with ID %s.\\n" "${_target}"
+  fi
+
+  _ensure_nag_dir
+  printf "%s\\n" "${_target}" >> "${_SNOOZED_FILE}"
+  _release_lock
+  printf "Snoozed [%s] %s.\\n" "${_target}" "${_message}"
 }
 
 # edit ########################################################################
