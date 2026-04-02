@@ -655,6 +655,79 @@ _is_muted() {
 }
 
 # Usage:
+#   _is_snoozed <id>
+#
+# Description:
+#   Check whether an alarm ID is currently snoozed. If the entry has an
+#   expiry timestamp, it is only considered snoozed when the expiry is
+#   still in the future.
+#
+# Exit / Error Status:
+#   0 (success, true)  If the alarm is snoozed.
+#   1 (error,  false)  If the alarm is not snoozed.
+_is_snoozed() {
+  local _id="${1}"
+  [[ -f "${_SNOOZED_FILE}" ]] || return 1
+
+  local _now _entry
+  _now="$(date +%s)"
+
+  while IFS= read -r _entry || [[ -n "${_entry}" ]]
+  do
+    [[ -n "${_entry}" ]] || continue
+    local _entry_key="${_entry%%$'\t'*}"
+
+    [[ "${_entry_key}" == "${_id}" ]] || continue
+
+    # Check expiry if present.
+    if [[ "${_entry}" == *$'\t'* ]]
+    then
+      local _expiry="${_entry#*$'\t'}"
+      (( _expiry > _now )) && return 0
+    else
+      return 0
+    fi
+  done < "${_SNOOZED_FILE}"
+
+  return 1
+}
+
+# Usage:
+#   _sweep_expired_snoozes
+#
+# Description:
+#   Remove expired snooze entries (those whose expiry timestamp is in the
+#   past). Indefinite entries (no expiry) are kept. If all entries are
+#   removed, the snoozed file is deleted.
+_sweep_expired_snoozes() {
+  [[ -f "${_SNOOZED_FILE}" ]] || return 0
+
+  local _now
+  _now="$(date +%s)"
+  local -a _keep=()
+  local _entry
+
+  while IFS= read -r _entry || [[ -n "${_entry}" ]]
+  do
+    [[ -n "${_entry}" ]] || continue
+    if [[ "${_entry}" == *$'\t'* ]]
+    then
+      local _expiry="${_entry#*$'\t'}"
+      (( _expiry <= _now )) && continue
+    fi
+    _keep+=("${_entry}")
+  done < "${_SNOOZED_FILE}"
+
+  if (( ${#_keep[@]} == 0 ))
+  then
+    rm -f "${_SNOOZED_FILE}"
+  else
+    printf "%s\n" "${_keep[@]}" > "${_SNOOZED_FILE}.tmp"
+    mv -f "${_SNOOZED_FILE}.tmp" "${_SNOOZED_FILE}"
+  fi
+}
+
+# Usage:
 #   _remove_snoozed_entry <key>
 #
 # Description:
@@ -1746,6 +1819,7 @@ check() {
 
   _acquire_lock
   _read_alarms
+  _sweep_expired_snoozes
 
   local -a _new_alarms=()
   local _now
@@ -1762,6 +1836,12 @@ check() {
     _timestamp="$(_get_alarm_field "${_line}" 3)"
     _rule="$(_get_alarm_field "${_line}" 4)"
     _message="$(_get_alarm_field "${_line}" 5)"
+
+    if _is_snoozed "${_id}"
+    then
+      _new_alarms+=("${_line}")
+      continue
+    fi
 
     if (( _timestamp <= _now ))
     then
