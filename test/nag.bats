@@ -71,9 +71,27 @@ load test_helper
   [ "${status}" -eq 1 ]
 }
 
-@test "at with explicit past date fails" {
+@test "at rejects yesterday" {
   run_nag at "yesterday 3pm" "too late"
   [ "${status}" -eq 1 ]
+}
+
+@test "at rejects ago" {
+  run_nag at "2 hours ago" "too late"
+  [ "${status}" -eq 1 ]
+}
+
+@test "at rolls past date forward to next year" {
+  local _last_month
+  _last_month="$(date -d "last month" "+%B %-d")"
+  run_nag at "${_last_month}" "annual thing"
+  [ "${status}" -eq 0 ]
+  local _ts
+  _ts="$(cut -f2 "${NAG_DIR}/alarms")"
+  local _ts_year _next_year
+  _ts_year="$(date -d "@${_ts}" +%Y)"
+  _next_year="$(date -d "+1 year" +%Y)"
+  [ "${_ts_year}" = "${_next_year}" ]
 }
 
 @test "at without message fails" {

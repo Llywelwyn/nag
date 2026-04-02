@@ -848,11 +848,18 @@ _timestamp_matches_rule() {
 #
 # Description:
 #   Parse a human-readable time string via `date -d` and print a unix
-#   timestamp. If the time is earlier today, roll forward to tomorrow.
-#   If the date is explicitly in the past (a previous day), error.
+#   timestamp. If the result is in the past, roll forward to the next
+#   occurrence. Rejects explicitly backward terms like "yesterday"/"ago".
 _parse_time() {
   local _time_str="${1:-}"
   [[ -n "${_time_str}" ]] || _exit_1 printf "No time specified.\\n"
+
+  local _lower
+  _lower="$(printf "%s" "${_time_str}" | tr '[:upper:]' '[:lower:]')"
+  if [[ "${_lower}" == *"yesterday"* ]] || [[ "${_lower}" == *" ago"* ]]
+  then
+    _exit_1 printf "Time is in the past: %s\\n" "${_time_str}"
+  fi
 
   local _timestamp
   _timestamp="$(date -d "${_time_str}" +%s 2>/dev/null)" ||
@@ -861,22 +868,33 @@ _parse_time() {
   local _now
   _now="$(date +%s)"
 
-  if [[ "${_timestamp}" -le "${_now}" ]]
+  if (( _timestamp <= _now ))
   then
-    local _parsed_date _today
-    _parsed_date="$(date -d "@${_timestamp}" +%Y-%m-%d)"
-    _today="$(date +%Y-%m-%d)"
-
-    if [[ "${_parsed_date}" != "${_today}" ]]
-    then
-      _exit_1 printf "Time is in the past: %s.\\n" "${_time_str}"
-    fi
-
-    # Today but already passed: roll to tomorrow same time.
-    local _time_of_day
+    local _time_of_day _month _day
     _time_of_day="$(date -d "@${_timestamp}" +%H:%M:%S)"
-    _timestamp="$(date -d "tomorrow ${_time_of_day}" +%s)" ||
-      _exit_1 printf "Could not compute next day for: %s\\n" "${_time_str}"
+    _month="$(date -d "@${_timestamp}" +%-m)"
+    _day="$(date -d "@${_timestamp}" +%-d)"
+
+    local _today_date _parsed_date
+    _today_date="$(date +%Y-%m-%d)"
+    _parsed_date="$(date -d "@${_timestamp}" +%Y-%m-%d)"
+
+    if [[ "${_parsed_date}" == "${_today_date}" ]]
+    then
+      _timestamp="$(date -d "tomorrow ${_time_of_day}" +%s)"
+    else
+      local _next_year
+      _next_year="$(date +%Y)"
+      local _this_year_ts
+      _this_year_ts="$(date -d "$(printf "%04d-%02d-%02d %s" "${_next_year}" "${_month}" "${_day}" "${_time_of_day}")" +%s 2>/dev/null)" || _this_year_ts=0
+      if (( _this_year_ts > _now ))
+      then
+        _timestamp="${_this_year_ts}"
+      else
+        _next_year=$((_next_year + 1))
+        _timestamp="$(date -d "$(printf "%04d-%02d-%02d %s" "${_next_year}" "${_month}" "${_day}" "${_time_of_day}")" +%s)"
+      fi
+    fi
   fi
 
   printf "%s" "${_timestamp}"
