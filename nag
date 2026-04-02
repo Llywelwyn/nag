@@ -43,7 +43,7 @@ _LOCKFILE="${NAG_DIR}/alarms.lock"
 NAG_CMD="${NAG_CMD:-notify-send}"
 
 # Sound file to play when an alarm fires. Empty or missing file = no sound.
-NAG_SOUND="${NAG_SOUND-/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga}"
+NAG_SOUND="${NAG_SOUND-/usr/share/sounds/freedesktop/stereo/bell.oga}"
 _MUTED_FILE="${NAG_DIR}/muted"
 
 # The default subcommand if no args are passed.
@@ -1063,7 +1063,7 @@ Options:
 Environment:
   NAG_DIR    Alarm storage directory (default: ~/.local/share/nag)
   NAG_CMD    Notification command (default: notify-send)
-  NAG_SOUND  Sound file to play (default: freedesktop alarm sound)
+  NAG_SOUND  Sound file to play (default: freedesktop bell sound)
 HEREDOC
   fi
 }
