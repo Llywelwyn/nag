@@ -32,3 +32,32 @@ load test_helper
   run_nag stop
   [ "${status}" -eq 1 ]
 }
+
+@test "stop by tag requires -f" {
+  run_nag at "tomorrow 3pm" "tagged alarm"
+  run_nag tag 1 work
+  run "${_NAG}" stop work
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "Would stop" ]]
+  [[ "${output}" =~ "-f" ]]
+  [ -s "${NAG_DIR}/alarms" ]
+}
+
+@test "stop by tag with -f removes matching alarms" {
+  run_nag at "tomorrow 3pm" "work alarm"
+  run_nag tag 1 work
+  run_nag at "tomorrow 4pm" "personal alarm"
+  run "${_NAG}" -f stop work
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "Stopped" ]]
+  [[ "${output}" =~ "work alarm" ]]
+  run_nag
+  [[ "${output}" =~ "personal alarm" ]]
+  [[ ! "${output}" =~ "work alarm" ]]
+}
+
+@test "stop by tag with no matches fails" {
+  run_nag at "tomorrow 3pm" "test alarm"
+  run "${_NAG}" -f stop work
+  [ "${status}" -eq 1 ]
+}

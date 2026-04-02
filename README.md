@@ -5,8 +5,8 @@ Usage:
   nag                                     list all alarms
   nag <time> <message...>                 one-shot alarm
   nag every <rules> <time> <message...>   repeating alarm
-  nag stop <id>                           delete alarm
-  nag skip <id>                           skip next occurrence
+  nag stop <id|tag>                       delete alarm(s)
+  nag skip <id|tag>                       skip next occurrence(s)
   nag tag <id> <tags...>                  add tags to an alarm
   nag tag <tag>                           list alarms with a tag
   nag untag <id> <tags...>                remove tags from an alarm
@@ -130,10 +130,10 @@ Examples:
 
 ```text
 Usage:
-  nag stop <id>
+  nag stop <id|tag>
 
 Description:
-  Stop an alarm by ID.
+  Stop an alarm by ID, or stop all alarms with a tag (requires -f).
 ```
 
 #### `nag skip`
@@ -146,11 +146,12 @@ Description:
 
 ```text
 Usage:
-  nag skip <id>
+  nag skip <id|tag>
 
 Description:
   Skip the next occurrence of a repeating alarm (reschedule without firing).
-  For one-shot alarms, this deletes them.
+  For one-shot alarms, this deletes them. With a tag, applies to all
+  matching alarms (requires -f).
 ```
 
 #### `nag tag`
@@ -216,10 +217,11 @@ Description:
 
 ```text
 Usage:
-  nag mute
+  nag mute [<tag>]
 
 Description:
-  Mute alarm sounds. Notifications still fire, but no sound is played.
+  Mute alarm sounds. With no argument, mutes all alarms globally.
+  With a tag, mutes only alarms with that tag.
 ```
 
 #### `nag unmute`
@@ -232,10 +234,11 @@ Description:
 
 ```text
 Usage:
-  nag unmute
+  nag unmute [<tag>]
 
 Description:
-  Unmute alarm sounds.
+  Unmute alarm sounds. With no argument, unmutes everything.
+  With a tag, unmutes only that tag.
 ```
 
 #### `nag edit`

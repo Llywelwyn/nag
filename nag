@@ -1192,8 +1192,8 @@ Usage:
   ${_ME}                                     list all alarms
   ${_ME} <time> <message...>                 one-shot alarm
   ${_ME} every <rules> <time> <message...>   repeating alarm
-  ${_ME} stop <id>                           delete alarm
-  ${_ME} skip <id>                           skip next occurrence
+  ${_ME} stop <id|tag>                       delete alarm(s)
+  ${_ME} skip <id|tag>                       skip next occurrence(s)
   ${_ME} tag <id> <tags...>                  add tags to an alarm
   ${_ME} tag <tag>                           list alarms with a tag
   ${_ME} untag <id> <tags...>                remove tags from an alarm
@@ -1300,14 +1300,20 @@ list() {
 
 describe "stop" <<HEREDOC
 Usage:
-  ${_ME} stop <id>
+  ${_ME} stop <id|tag>
 
 Description:
-  Stop an alarm by ID.
+  Stop an alarm by ID, or stop all alarms with a tag (requires -f).
 HEREDOC
 stop() {
-  local _target_id="${1:-}"
-  [[ -n "${_target_id}" ]] || _exit_1 printf "Usage: %s stop <id>\\n" "${_ME}"
+  local _target="${1:-}"
+  [[ -n "${_target}" ]] || _exit_1 printf "Usage: %s stop <id|tag>\\n" "${_ME}"
+
+  if [[ ! "${_target}" =~ ^[0-9]+$ ]]
+  then
+    _stop_by_tag "${_target}"
+    return
+  fi
 
   _acquire_lock
   _read_alarms
@@ -1320,8 +1326,8 @@ stop() {
   do
     [[ -n "${_line}" ]] || continue
     local _id
-    _id="$(_get_alarm_field "${_line}" 1)"
-    if [[ "${_id}" == "${_target_id}" ]]
+    _id="${_line%%$'\t'*}"
+    if [[ "${_id}" == "${_target}" ]]
     then
       _found=1
     else
@@ -1329,13 +1335,13 @@ stop() {
     fi
   done
 
-  if [[ "${_found}" -eq 0 ]]
+  if (( ! _found ))
   then
     _release_lock
-    _exit_1 printf "No alarm with ID %s.\\n" "${_target_id}"
+    _exit_1 printf "No alarm with ID %s.\\n" "${_target}"
   fi
 
-  if [[ "${#_new_alarms[@]}" -eq 0 ]]
+  if (( ${#_new_alarms[@]} == 0 ))
   then
     _ALARMS=()
     : > "${_ALARMS_FILE}"
@@ -1345,22 +1351,85 @@ stop() {
   fi
   _release_lock
 
-  printf "Stopped alarm %s.\\n" "${_target_id}"
+  printf "Stopped alarm %s.\\n" "${_target}"
+}
+
+_stop_by_tag() {
+  local _tag="${1}"
+
+  _acquire_lock
+  _read_alarms
+
+  local -a _new_alarms=()
+  local -a _matched=()
+  local _line
+
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _tags
+    _tags="$(_get_alarm_field "${_line}" 2)"
+    if _alarm_has_tag "${_tags}" "${_tag}"
+    then
+      _matched+=("${_line}")
+    else
+      _new_alarms+=("${_line}")
+    fi
+  done
+
+  if (( ${#_matched[@]} == 0 ))
+  then
+    _release_lock
+    _exit_1 printf "No alarms tagged [%s].\\n" "${_tag}"
+  fi
+
+  if (( ! _YES ))
+  then
+    _release_lock
+    printf "Would stop %s alarm(s) tagged [%s]. Pass -f to confirm.\\n" "${#_matched[@]}" "${_tag}"
+    return 0
+  fi
+
+  if (( ${#_new_alarms[@]} == 0 ))
+  then
+    _ALARMS=()
+    : > "${_ALARMS_FILE}"
+  else
+    _ALARMS=("${_new_alarms[@]}")
+    _write_alarms
+  fi
+  _release_lock
+
+  local _m
+  for _m in "${_matched[@]}"
+  do
+    local _id _message
+    _id="${_m%%$'\t'*}"
+    _message="$(_get_alarm_field "${_m}" 5)"
+    printf "Stopped [%s] %s\\n" "${_id}" "${_message}"
+  done
 }
 
 # skip ########################################################################
 
 describe "skip" <<HEREDOC
 Usage:
-  ${_ME} skip <id>
+  ${_ME} skip <id|tag>
 
 Description:
   Skip the next occurrence of a repeating alarm (reschedule without firing).
-  For one-shot alarms, this deletes them.
+  For one-shot alarms, this deletes them. With a tag, applies to all
+  matching alarms (requires -f).
 HEREDOC
 skip() {
-  local _target_id="${1:-}"
-  [[ -n "${_target_id}" ]] || _exit_1 printf "Usage: %s skip <id>\\n" "${_ME}"
+  local _target="${1:-}"
+  [[ -n "${_target}" ]] || _exit_1 printf "Usage: %s skip <id|tag>\\n" "${_ME}"
+
+  if [[ ! "${_target}" =~ ^[0-9]+$ ]]
+  then
+    _skip_by_tag "${_target}"
+    return
+  fi
 
   _acquire_lock
   _read_alarms
@@ -1379,7 +1448,7 @@ skip() {
     _rule="$(_get_alarm_field "${_line}" 4)"
     _message="$(_get_alarm_field "${_line}" 5)"
 
-    if [[ "${_id}" == "${_target_id}" ]]
+    if [[ "${_id}" == "${_target}" ]]
     then
       _found=1
       if [[ -n "${_rule}" ]]
@@ -1389,22 +1458,95 @@ skip() {
         _new_alarms+=("$(printf "%s\t%s\t%s\t%s\t%s" "${_id}" "${_tags}" "${_next_ts}" "${_rule}" "${_message}")")
         _format_time "${_next_ts}"
         _human_time="${REPLY}"
-        printf "Skipped. Next: %s\\n" "${_human_time}"
+        printf "Skipped [%s] %s — next: %s\\n" "${_id}" "${_message}" "${_human_time}"
       else
-        printf "Stopped alarm %s.\\n" "${_id}"
+        printf "Stopped [%s] %s\\n" "${_id}" "${_message}"
       fi
     else
       _new_alarms+=("${_line}")
     fi
   done
 
-  if [[ "${_found}" -eq 0 ]]
+  if (( ! _found ))
   then
     _release_lock
-    _exit_1 printf "No alarm with ID %s.\\n" "${_target_id}"
+    _exit_1 printf "No alarm with ID %s.\\n" "${_target}"
   fi
 
-  if [[ "${#_new_alarms[@]}" -eq 0 ]]
+  if (( ${#_new_alarms[@]} == 0 ))
+  then
+    _ALARMS=()
+    : > "${_ALARMS_FILE}"
+  else
+    _ALARMS=("${_new_alarms[@]}")
+    _write_alarms
+  fi
+  _release_lock
+}
+
+_skip_by_tag() {
+  local _tag="${1}"
+
+  _acquire_lock
+  _read_alarms
+
+  local -a _new_alarms=()
+  local _match_count=0
+  local _line
+
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _tags
+    _tags="$(_get_alarm_field "${_line}" 2)"
+    if _alarm_has_tag "${_tags}" "${_tag}"
+    then
+      _match_count=$((_match_count + 1))
+    fi
+  done
+
+  if (( _match_count == 0 ))
+  then
+    _release_lock
+    _exit_1 printf "No alarms tagged [%s].\\n" "${_tag}"
+  fi
+
+  if (( ! _YES ))
+  then
+    _release_lock
+    printf "Would skip %s alarm(s) tagged [%s]. Pass -f to confirm.\\n" "${_match_count}" "${_tag}"
+    return 0
+  fi
+
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _id _tags _timestamp _rule _message
+    _id="$(_get_alarm_field "${_line}" 1)"
+    _tags="$(_get_alarm_field "${_line}" 2)"
+    _timestamp="$(_get_alarm_field "${_line}" 3)"
+    _rule="$(_get_alarm_field "${_line}" 4)"
+    _message="$(_get_alarm_field "${_line}" 5)"
+
+    if _alarm_has_tag "${_tags}" "${_tag}"
+    then
+      if [[ -n "${_rule}" ]]
+      then
+        local _next_ts _human_time
+        _next_ts="$(_next_occurrence "${_rule}" "${_timestamp}")"
+        _new_alarms+=("$(printf "%s\t%s\t%s\t%s\t%s" "${_id}" "${_tags}" "${_next_ts}" "${_rule}" "${_message}")")
+        _format_time "${_next_ts}"
+        _human_time="${REPLY}"
+        printf "Skipped [%s] %s — next: %s\\n" "${_id}" "${_message}" "${_human_time}"
+      else
+        printf "Stopped [%s] %s\\n" "${_id}" "${_message}"
+      fi
+    else
+      _new_alarms+=("${_line}")
+    fi
+  done
+
+  if (( ${#_new_alarms[@]} == 0 ))
   then
     _ALARMS=()
     : > "${_ALARMS_FILE}"

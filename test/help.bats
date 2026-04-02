@@ -7,8 +7,8 @@ load test_helper
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "<time> <message...>" ]]
   [[ "${output}" =~ "every <rules> <time> <message...>" ]]
-  [[ "${output}" =~ "stop <id>" ]]
-  [[ "${output}" =~ "skip <id>" ]]
+  [[ "${output}" =~ "stop <id|tag>" ]]
+  [[ "${output}" =~ "skip <id|tag>" ]]
   [[ "${output}" =~ "check" ]]
   [[ "${output}" =~ "help [<subcommand>]" ]]
   [[ "${output}" =~ "Options:" ]]
@@ -39,14 +39,14 @@ load test_helper
   run_nag help stop
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "Usage:" ]]
-  [[ "${output}" =~ "stop <id>" ]]
+  [[ "${output}" =~ "stop <id|tag>" ]]
 }
 
 @test "help skip shows skip usage" {
   run_nag help skip
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "Usage:" ]]
-  [[ "${output}" =~ "skip <id>" ]]
+  [[ "${output}" =~ "skip <id|tag>" ]]
 }
 
 @test "help every shows every usage" {

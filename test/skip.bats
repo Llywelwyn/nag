@@ -32,3 +32,32 @@ load test_helper
   run_nag skip
   [ "${status}" -eq 1 ]
 }
+
+@test "skip by tag requires -f" {
+  run_nag every day "tomorrow 3pm" "daily work"
+  run_nag tag 1 work
+  run "${_NAG}" skip work
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "Would skip" ]]
+  [[ "${output}" =~ "-f" ]]
+}
+
+@test "skip by tag with -f reschedules matching alarms" {
+  run_nag every day "tomorrow 3pm" "daily work"
+  run_nag tag 1 work
+  local _old_ts
+  _old_ts="$(cut -f3 "${NAG_DIR}/alarms")"
+  run "${_NAG}" -f skip work
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ "Skipped" ]]
+  [[ "${output}" =~ "daily work" ]]
+  local _new_ts
+  _new_ts="$(cut -f3 "${NAG_DIR}/alarms")"
+  (( _new_ts > _old_ts ))
+}
+
+@test "skip by tag with no matches fails" {
+  run_nag at "tomorrow 3pm" "test alarm"
+  run "${_NAG}" -f skip work
+  [ "${status}" -eq 1 ]
+}
