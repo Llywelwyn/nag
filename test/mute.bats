@@ -2,12 +2,17 @@
 
 load test_helper
 
-@test "mute with no args creates mute file with global entry" {
-  run_nag mute
+@test "mute all creates mute file with global entry" {
+  run_nag mute all
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "Muted all." ]]
   [ -f "${NAG_DIR}/mute" ]
   grep -q "^\*$" "${NAG_DIR}/mute"
+}
+
+@test "mute with no args fails" {
+  run_nag mute
+  [ "${status}" -eq 1 ]
 }
 
 @test "mute tag adds tag to mute file" {
@@ -18,29 +23,34 @@ load test_helper
 }
 
 @test "mute tag skips if global mute already set" {
-  run_nag mute
+  run_nag mute all
   run_nag mute work
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "Muted [work]." ]]
   [ "$(wc -l < "${NAG_DIR}/mute")" -eq 1 ]
 }
 
-@test "unmute with no args deletes mute file" {
-  run_nag mute
-  run_nag unmute
+@test "unmute all deletes mute file" {
+  run_nag mute all
+  run_nag unmute all
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "Unmuted all." ]]
   [ ! -f "${NAG_DIR}/mute" ]
 }
 
-@test "unmute when not muted says so" {
+@test "unmute with no args fails" {
   run_nag unmute
+  [ "${status}" -eq 1 ]
+}
+
+@test "unmute all when not muted says so" {
+  run_nag unmute all
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "not muted" ]]
 }
 
 @test "unmute tag adds !tag when global mute is set" {
-  run_nag mute
+  run_nag mute all
   run_nag unmute work
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "Unmuted [work]." ]]

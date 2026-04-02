@@ -1228,8 +1228,8 @@ Usage:
   ${_ME} tag <tag>                           list alarms with a tag
   ${_ME} untag <id> <tags...>                remove tags from an alarm
   ${_ME} check                               check and fire due alarms
-  ${_ME} mute                                mute alarm sounds
-  ${_ME} unmute                              unmute alarm sounds
+  ${_ME} mute <all|tag>                      mute alarm sounds
+  ${_ME} unmute <all|tag>                    unmute alarm sounds
   ${_ME} edit                                edit alarms file directly
   ${_ME} help [<subcommand>]                 show help
   ${_ME} version                             show version
@@ -1808,31 +1808,32 @@ every() {
 
 describe "mute" <<HEREDOC
 Usage:
-  ${_ME} mute [<tag>]
+  ${_ME} mute <all|tag>
 
 Description:
-  Mute alarm sounds. With no argument, mutes all alarms globally.
-  With a tag, mutes only alarms with that tag.
+  Mute alarm sounds. Use 'all' to mute everything, or specify a tag.
 HEREDOC
 mute() {
-  _ensure_nag_dir
-  local _tag="${1:-}"
+  local _target="${1:-}"
+  [[ -n "${_target}" ]] || _exit_1 printf "Usage: %s mute <all|tag>\\n" "${_ME}"
 
-  if [[ -z "${_tag}" ]]
+  _ensure_nag_dir
+
+  if [[ "${_target}" == "all" ]]
   then
-    printf "*\\n" > "${_MUTE_FILE}"
-    printf "Muted all.\\n"
+    printf "*\n" > "${_MUTE_FILE}"
+    printf "Muted all.\n"
   else
     if [[ -f "${_MUTE_FILE}" ]] && grep -Fxq '*' "${_MUTE_FILE}"
     then
-      printf "Muted [%s].\\n" "${_tag}"
+      printf "Muted [%s].\n" "${_target}"
       return 0
     fi
-    if ! [[ -f "${_MUTE_FILE}" ]] || ! grep -Fxq "${_tag}" "${_MUTE_FILE}"
+    if ! [[ -f "${_MUTE_FILE}" ]] || ! grep -Fxq "${_target}" "${_MUTE_FILE}"
     then
-      printf "%s\\n" "${_tag}" >> "${_MUTE_FILE}"
+      printf "%s\n" "${_target}" >> "${_MUTE_FILE}"
     fi
-    printf "Muted [%s].\\n" "${_tag}"
+    printf "Muted [%s].\n" "${_target}"
   fi
 }
 
@@ -1840,34 +1841,34 @@ mute() {
 
 describe "unmute" <<HEREDOC
 Usage:
-  ${_ME} unmute [<tag>]
+  ${_ME} unmute <all|tag>
 
 Description:
-  Unmute alarm sounds. With no argument, unmutes everything.
-  With a tag, unmutes only that tag.
+  Unmute alarm sounds. Use 'all' to unmute everything, or specify a tag.
 HEREDOC
 unmute() {
-  local _tag="${1:-}"
+  local _target="${1:-}"
+  [[ -n "${_target}" ]] || _exit_1 printf "Usage: %s unmute <all|tag>\\n" "${_ME}"
 
-  if [[ -z "${_tag}" ]]
+  if [[ "${_target}" == "all" ]]
   then
     if [[ -f "${_MUTE_FILE}" ]]
     then
       rm -f "${_MUTE_FILE}"
-      printf "Unmuted all.\\n"
+      printf "Unmuted all.\n"
     else
-      printf "Sound is not muted.\\n"
+      printf "Sound is not muted.\n"
     fi
   else
     _ensure_nag_dir
-    if [[ -f "${_MUTE_FILE}" ]] && grep -Fxq "${_tag}" "${_MUTE_FILE}"
+    if [[ -f "${_MUTE_FILE}" ]] && grep -Fxq "${_target}" "${_MUTE_FILE}"
     then
-      { grep -Fxv "${_tag}" "${_MUTE_FILE}" || true; } > "${_MUTE_FILE}.tmp"
+      { grep -Fxv "${_target}" "${_MUTE_FILE}" || true; } > "${_MUTE_FILE}.tmp"
       mv -f "${_MUTE_FILE}.tmp" "${_MUTE_FILE}"
     else
-      printf "!%s\\n" "${_tag}" >> "${_MUTE_FILE}"
+      printf "!%s\n" "${_target}" >> "${_MUTE_FILE}"
     fi
-    printf "Unmuted [%s].\\n" "${_tag}"
+    printf "Unmuted [%s].\n" "${_target}"
   fi
 }
 
