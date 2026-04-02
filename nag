@@ -1612,8 +1612,9 @@ tag() {
   shift
   [[ -n "${1:-}" ]] || _exit_1 printf "Usage: %s tag <id> <tags...>\\n" "${_ME}"
 
+  local -a _requested_tags=("$@")
   local _tag
-  for _tag in "$@"
+  for _tag in "${_requested_tags[@]}"
   do
     if [[ "${_tag}" =~ ^[0-9]+$ ]]
     then
@@ -1648,7 +1649,7 @@ tag() {
         IFS=',' read -r -a _tag_arr <<< "${_existing_tags}"
       fi
 
-      for _tag in "$@"
+      for _tag in "${_requested_tags[@]}"
       do
         local _already=0 _t
         for _t in "${_tag_arr[@]:-}"
@@ -1675,7 +1676,94 @@ tag() {
   _write_alarms
   _release_lock
 
-  printf "Tagged [%s] %s.\\n" "${_target_id}" "${_result_tags//,/, }"
+  local _acted_on
+  _acted_on="$(_join "," "${_requested_tags[@]}")"
+  printf "Tagged [%s] %s.\\n" "${_target_id}" "${_acted_on//,/, }"
+}
+
+describe "untag" <<HEREDOC
+Usage:
+  ${_ME} untag <id> <tags...>
+
+Description:
+  Remove one or more tags from an alarm.
+HEREDOC
+untag() {
+  local _target_id="${1:-}"
+  [[ -n "${_target_id}" ]] || _exit_1 printf "Usage: %s untag <id> <tags...>\\n" "${_ME}"
+  shift
+  [[ -n "${1:-}" ]] || _exit_1 printf "Usage: %s untag <id> <tags...>\\n" "${_ME}"
+  local -a _target_tags=("$@")
+
+  _acquire_lock
+  _read_alarms
+
+  local -a _new_alarms=()
+  local _found=0
+  local _tags_found=0
+  local _line
+
+  for _line in "${_ALARMS[@]:-}"
+  do
+    [[ -n "${_line}" ]] || continue
+    local _id _existing_tags _timestamp _rule _message
+    _id="${_line%%$'\t'*}"; local _rest="${_line#*$'\t'}"
+    if [[ "${_id}" == "${_target_id}" ]]
+    then
+      _found=1
+      _existing_tags="${_rest%%$'\t'*}"; _rest="${_rest#*$'\t'}"
+      _timestamp="${_rest%%$'\t'*}"; _rest="${_rest#*$'\t'}"
+      _rule="${_rest%%$'\t'*}"
+      _message="${_rest#*$'\t'}"
+
+      local -a _tag_arr=()
+      local -a _new_tag_arr=()
+      if [[ -n "${_existing_tags}" ]]
+      then
+        IFS=',' read -r -a _tag_arr <<< "${_existing_tags}"
+      fi
+
+      local _t
+      for _t in "${_tag_arr[@]:-}"
+      do
+        local _removing=0 _rt
+        for _rt in "${_target_tags[@]}"
+        do
+          [[ "${_t}" == "${_rt}" ]] && _removing=1 && _tags_found=$((_tags_found + 1)) && break
+        done
+        (( _removing )) || _new_tag_arr+=("${_t}")
+      done
+
+      local _new_tags=""
+      if (( ${#_new_tag_arr[@]} > 0 ))
+      then
+        _new_tags="$(_join "," "${_new_tag_arr[@]}")"
+      fi
+      _new_alarms+=("$(printf "%s\t%s\t%s\t%s\t%s" "${_id}" "${_new_tags}" "${_timestamp}" "${_rule}" "${_message}")")
+    else
+      _new_alarms+=("${_line}")
+    fi
+  done
+
+  if (( ! _found ))
+  then
+    _release_lock
+    _exit_1 printf "No alarm with ID %s.\\n" "${_target_id}"
+  fi
+
+  if (( ! _tags_found ))
+  then
+    _release_lock
+    _exit_1 printf "Alarm %s does not have those tags.\\n" "${_target_id}"
+  fi
+
+  _ALARMS=("${_new_alarms[@]}")
+  _write_alarms
+  _release_lock
+
+  local _acted_on
+  _acted_on="$(_join "," "${_target_tags[@]}")"
+  printf "Untagged [%s] %s.\\n" "${_target_id}" "${_acted_on//,/, }"
 }
 
 # _main must be called after everything has been defined.

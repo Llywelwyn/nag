@@ -62,3 +62,50 @@ load test_helper
   [ "${status}" -eq 0 ]
   [[ "${output}" =~ "No alarms tagged" ]]
 }
+
+@test "untag removes a tag from an alarm" {
+  run_nag at "tomorrow 3pm" "test alarm"
+  run_nag tag 1 work meetings
+  run_nag untag 1 work
+  [ "${status}" -eq 0 ]
+  local _tags
+  _tags="$(cut -f2 "${NAG_DIR}/alarms")"
+  [ "${_tags}" = "meetings" ]
+}
+
+@test "untag removes the last tag leaving empty field" {
+  run_nag at "tomorrow 3pm" "test alarm"
+  run_nag tag 1 work
+  run_nag untag 1 work
+  [ "${status}" -eq 0 ]
+  local _tags
+  _tags="$(cut -f2 "${NAG_DIR}/alarms")"
+  [ "${_tags}" = "" ]
+}
+
+@test "untag with nonexistent tag fails" {
+  run_nag at "tomorrow 3pm" "test alarm"
+  run_nag tag 1 work
+  run_nag untag 1 meetings
+  [ "${status}" -eq 1 ]
+}
+
+@test "untag with nonexistent ID fails" {
+  run_nag untag 99 work
+  [ "${status}" -eq 1 ]
+}
+
+@test "untag removes multiple tags at once" {
+  run_nag at "tomorrow 3pm" "test alarm"
+  run_nag tag 1 work meetings personal
+  run_nag untag 1 work personal
+  [ "${status}" -eq 0 ]
+  local _tags
+  _tags="$(cut -f2 "${NAG_DIR}/alarms")"
+  [ "${_tags}" = "meetings" ]
+}
+
+@test "untag without arguments fails" {
+  run_nag untag
+  [ "${status}" -eq 1 ]
+}
