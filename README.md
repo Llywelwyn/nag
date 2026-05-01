@@ -1,26 +1,62 @@
-nag, a bash script for setting one-off or repeating alarms
+nag, a bash script for setting one-off or repeating alarms with natural language
+
+`nag` typically requires a cron daemon or systemd-timer to be available. On the first alarm set, `nag` will prompt to install whichever is relevant for your system. The timer will then invoke `nag check` on an interval, which checks for alarms that are due to go off, and triggers them as appropritate. By default `notify-send` is used, but the command triggered can be overriden with `NAG_CMD` to anything you like.
+
+`nag` attempts to use something close to natural language. You can `nag [at] 2pm` for a one-off alarm at 2pm, or `nag every 2pm` for an alarm every 2pm. To delete an alarm, `nag stop` it, or to just skip one instance `nag skip`. If it's a one-off alarm being skipped, that's the same as just stopping it. If you want to keep an alarm from triggering for a duration, like during a week off, you can `nag snooze` it; that'll stop it triggering entirely. For just silencing the sound, `nag mute` instead.
+
+Alarms can be tagged with `nag tag <id> <tags...>`, and all alarms of a tag can be listed with `nag tag <tag>`. When you `stop`, `skip`, `snooze`, or `mute` an alarm, you can either operate on `all` alarms, a specific id, or a specific tag. For example, `nag snooze work "until next Tuesday"`, or `nag mute all`.
+
+`un-` commands work with all of the above. You can `nag unskip` a skipped alarm to bring it back to the next date. For example, if you skip your Friday alarm by mistake, `nag unskip` will find the next Friday and set the next expiration to whenever that is.
+
+Time parsing is done with `date -d`, so it supports a decent array of formats:
+- Times of day (15:30, 3:30pm, 3pm, noon, teatime)
+- Calendar dates (2025-12-25, 25 Dec 2025, Dec 25)
+- Combined (tomorrow 9am, next monday 15:30)
+- Relative days (now, today, tomorrow, next week)
+- Relative times (+1 hour, 30 minutes, +1 day)
+- Ordinal dates (first monday, third friday of next month)
+- Time zones (15:30 UTC, 3pm PST)
+- ISO 8601 (2025-12-25T15:30:00)
+- Epoch (@1735138200)
+
+Rules for `nag every` are:
+- hourly (h, hr, hours, hourly)
+- daily (d, days, daily)
+- weekly (week, weekly)
+- monthly (month, months, monthly)
+- yearly (year, years, yearly)
+- weekday (weekday, weekdays)
+- weekend (weekend, weekends)
+- specific weekdays (mon, monday, mondays, etc.)
+
+e.g. `nag every weekday midday "Take a break for dinner."`
 
 ```text
 Usage:
   nag                                     list all alarms
   nag <time> <message...>                 one-shot alarm
   nag every <rules> <time> <message...>   repeating alarm
-  nag stop <id|tag>                       delete alarm(s)
-  nag skip <id|tag>                       skip next occurrence(s)
+  nag stop <all|id|tag>                   delete alarm(s)
+  nag skip <all|id|tag>                   skip next occurrence(s)
+  nag unskip <all|id|tag>                 reset to next occurrence
   nag tag <id> <tags...>                  add tags to an alarm
   nag tag <tag>                           list alarms with a tag
   nag untag <id> <tags...>                remove tags from an alarm
+  nag snooze <all|id|tag> [<duration>]    snooze alarms
+  nag unsnooze <all|id|tag>               unsnooze alarms
   nag check                               check and fire due alarms
-  nag mute                                mute alarm sounds
-  nag unmute                              unmute alarm sounds
+  nag mute <all|tag>                      mute alarm sounds
+  nag unmute <all|tag>                    unmute alarm sounds
   nag edit                                edit alarms file directly
   nag help [<subcommand>]                 show help
   nag version                             show version
 
 Options:
-  -e  Edit alarms file directly.
-  -f  Skip all prompts.
-  -v  Show version.
+  -e         Edit alarms file directly.
+  -f         Skip all prompts.
+  --iso      Show times as YYYY-MM-DD HH:MM:SS.
+  --epoch    Show times as unix timestamps.
+  -v         Show version.
 
 Environment:
   NAG_DIR    Alarm storage directory (default: ~/.local/share/nag)
